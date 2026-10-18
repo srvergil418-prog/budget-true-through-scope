@@ -291,11 +291,9 @@ float4 main(float4 pos : SV_POSITION, float2 uv : TEXCOORD0) : SV_Target {
 
 	void OverlayDraw(IDXGISwapChain* a_sc)
 	{
-		// 关键：遮罩无效时**不画**。上一版就是因为 maskR=0 退化成固定大小，
-		// 才出现"准星贴脸而且没被裁掉"。
+		// 只在 ADS 时画。遮罩参数现在用屏幕中心 + 固定半径（见下面的 CbData），
+		// 不再依赖 g_maskR —— 镜片投影还没校准好，依赖它会整块裁掉准星。
 		if (!g_ads.load()) return;
-		const float maskR = g_maskR;
-		if (!(maskR > 1.0f)) return;
 
 		ID3D11Device* dev = nullptr;
 		ID3D11DeviceContext* ctx = nullptr;
@@ -374,12 +372,18 @@ float4 main(float4 pos : SV_POSITION, float2 uv : TEXCOORD0) : SV_Target {
 			cb.screenH = (float)td.Height;
 			cb.centerX = (float)td.Width * 0.5f;
 			cb.centerY = (float)td.Height * 0.5f;
-			cb.boxW = maskR * 2.0f;
-			cb.boxH = maskR * 2.0f;
+
+			// 遮罩暂时钉在屏幕中心 + 按屏幕高度取固定半径：
+			// 镜片投影（g_maskCX/CY）目前不可靠（实测圆心在 y=993~1486 之间乱跳），
+			// 会把居中准星整块裁掉。先用这个版本确认准星能正常显示，
+			// 再回头调镜片投影。
+			const float fixedR = (float)td.Height * 0.15f;
+			cb.boxW = fixedR * 2.0f;
+			cb.boxH = fixedR * 2.0f;
 			cb.alphaMul = 1.0f;
-			cb.maskR = maskR;
-			cb.maskCX = g_maskCX;
-			cb.maskCY = g_maskCY;
+			cb.maskR = fixedR;
+			cb.maskCX = (float)td.Width * 0.5f;
+			cb.maskCY = (float)td.Height * 0.5f;
 
 			D3D11_MAPPED_SUBRESOURCE ms{};
 			if (SUCCEEDED(ctx->Map(s_state.cb, 0, D3D11_MAP_WRITE_DISCARD, 0, &ms))) {
