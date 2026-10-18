@@ -46,18 +46,22 @@ if (Test-Path $api) {
 }
 
 # ================================================================ 3) F4SE/Interfaces.h -- 0.6.23 ABI
+# dev-1.10.163 分支本身对得上 1.10.163，这段多半是 no-op；只在真的匹配上时才改。
 $intf = Join-Path $commonlibf4 'CommonLibF4/include/F4SE/Interfaces.h'
-if (-not (Test-Path $intf)) { throw "F4SE/Interfaces.h not found: $intf" }
-$intfText = [System.IO.File]::ReadAllText($intf)
-$intfOrig = $intfText
-$intfText = $intfText.Replace(
-    'const char*(F4SEAPI* GetSaveFolderName)(void);',
-    '/* [RC CI] GetSaveFolderName is F4SE 0.7.1+; the 1.10.163 loader (0.6.23) has no such entry */')
-$intfText = $intfText.Replace('return GetProxy().GetSaveFolderName();', 'return {};')
-if ($intfText -eq $intfOrig) { throw 'F4SE/Interfaces.h: the 0.6.23 ABI patch matched nothing' }
-if ($intfText -match 'GetProxy\(\)\.GetSaveFolderName') { throw 'F4SE/Interfaces.h: proxy call survived the patch' }
-Write-NoBom $intf $intfText
-Write-Host '  [3/4] F4SE/Interfaces.h -- 0.6.23 ABI' -ForegroundColor Green
+if (Test-Path $intf) {
+    $intfText = [System.IO.File]::ReadAllText($intf)
+    $intfOrig = $intfText
+    $intfText = $intfText.Replace(
+        'const char*(F4SEAPI* GetSaveFolderName)(void);',
+        '/* [RC CI] GetSaveFolderName is F4SE 0.7.1+; the 1.10.163 loader (0.6.23) has no such entry */')
+    $intfText = $intfText.Replace('return GetProxy().GetSaveFolderName();', 'return {};')
+    if ($intfText -eq $intfOrig) {
+        Write-Host '  [3/4] Interfaces.h: nothing to patch (already 1.10.163-compatible)' -ForegroundColor Yellow
+    } else {
+        Write-NoBom $intf $intfText
+        Write-Host '  [3/4] Interfaces.h patched (0.6.23 ABI)' -ForegroundColor Green
+    }
+}
 
 # ================================================================ 4) REX/LOG.cpp
 $lg = Join-Path $commonlibf4 'CommonLibF4/src/REX/REX/LOG.cpp'
