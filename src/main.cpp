@@ -352,7 +352,8 @@ namespace RC
 	// 找一个适合当遮罩的"单层面片"：
 	//   Lense 是 128 三角的多层筒壁，拿它当遮罩会被自己的层挡掉；
 	//   ScopeFade:0 是 48 三角，更像单层面片，优先用它。
-	static UINT s_lensIndexCount = 0;
+	static UINT s_lensIndexCount = 0;   // ScopeFade 圆环
+	static UINT s_diskIndexCount = 0;   // 我们挂上去的圆盘透镜
 
 	static void CacheLenseIndexCount(RE::PlayerCharacter* a_pc)
 	{
@@ -382,9 +383,9 @@ namespace RC
 	{
 		if (!a_node) return;
 		if (auto* tri = a_node->IsTriShape()) {
-			s_lensIndexCount = tri->numTriangles * 3u;
-			Log("[LENS] indexCount=%u (tri=%u vert=%u)",
-				s_lensIndexCount, tri->numTriangles, (unsigned)tri->numVertices);
+			s_diskIndexCount = tri->numTriangles * 3u;
+			Log("[LENS] disk indexCount=%u (tri=%u vert=%u)",
+				s_diskIndexCount, tri->numTriangles, (unsigned)tri->numVertices);
 			return;
 		}
 		if (auto* node = a_node->IsNode()) {
@@ -532,6 +533,16 @@ float4 main(float4 pos : SV_POSITION) : SV_Target {
 			if (s_detected < 10) {
 				s_detected++;
 				Log("[DRAW] lens draw hit: count=%u start=%u base=%d", a_count, a_start, a_base);
+			}
+			LensDraw::Draw(a_ctx, a_count, a_start, a_base);
+			return;
+		}
+		// 我们挂上去的圆盘：同样用准星 shader 画（它才是覆盖"洞"的那块镜片）
+		if (s_diskIndexCount > 0 && a_count == s_diskIndexCount && g_ads.load()) {
+			static int s_detected2 = 0;
+			if (s_detected2 < 10) {
+				s_detected2++;
+				Log("[DRAW] disk draw hit: count=%u start=%u base=%d", a_count, a_start, a_base);
 			}
 			LensDraw::Draw(a_ctx, a_count, a_start, a_base);
 			return;
