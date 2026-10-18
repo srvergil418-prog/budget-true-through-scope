@@ -56,7 +56,7 @@ namespace RC
 		return width > 0 && height > 0;
 	}
 
-	static bool LoadDds(ID3D11Device* a_dev, const wchar_t* a_path, ID3D11ShaderResourceView** a_outSrv)
+	bool LoadDdsSrv(ID3D11Device* a_dev, const wchar_t* a_path, ID3D11ShaderResourceView** a_outSrv)
 	{
 		HANDLE f = ::CreateFileW(a_path, GENERIC_READ, FILE_SHARE_READ, nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
 		if (f == INVALID_HANDLE_VALUE) return false;
@@ -248,7 +248,7 @@ float4 main(float4 pos : SV_POSITION) : SV_Target {
 		// 贴图
 		wchar_t wpath[MAX_PATH] = {};
 		::MultiByteToWideChar(CP_ACP, 0, kReticleDds, -1, wpath, MAX_PATH);
-		if (LoadDds(a_dev, wpath, &s_state.srv)) {
+		if (LoadDdsSrv(a_dev, wpath, &s_state.srv)) {
 			s_state.texFromFile = true;
 			BoxLog("[OVL] reticle DDS loaded: %s", kReticleDds);
 		} else {
