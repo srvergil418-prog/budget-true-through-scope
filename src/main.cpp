@@ -227,21 +227,17 @@ namespace RC
 	}
 }
 
-// 不用 F4SE_EXPORT 宏：它展开成 `extern "C" [[maybe_unused]] __declspec(dllexport)`，
-// 后面接 constinit 在部分宏组合/标准设置下会报 "auto should be preceded by ';'"。
-// 显式写出导出属性，并且不用 constinit。
-extern "C" __declspec(dllexport) F4SE::PluginVersionData F4SEPlugin_Version = []() noexcept {
-	F4SE::PluginVersionData data{};
-	data.AuthorName("ReticleCenter");
-	data.PluginName("ReticleCenter");
-	data.PluginVersion(0x00010000);
-	data.UsesAddressLibrary(true);
-	data.IsLayoutDependent(true);
-	data.UsesSigScanning(false);
-	data.HasNoStructUse(false);
-	data.CompatibleVersions({ F4SE::RUNTIME_1_10_163 });
-	return data;
-}();
+// 用 F4SE 老式入口（Query + Load）：
+//   新式的 F4SEPlugin_Version / PluginVersionData 只有 master 分支有，而 master 的
+//   REL::ID 对 1.10.163 无效（加载即崩）。dev-1.10.163 分支 ID 全对但没有
+//   PluginVersionData，所以走老式接口 —— F4SE 0.6.23 仍然支持它。
+extern "C" __declspec(dllexport) bool F4SEPlugin_Query(const F4SE::QueryInterface* a_f4se, F4SE::PluginInfo* a_info)
+{
+	a_info->infoVersion = F4SE::PluginInfo::kVersion;
+	a_info->name = "ReticleCenter";
+	a_info->version = 1;
+	return true;
+}
 
 extern "C" __declspec(dllexport) bool F4SEPlugin_Load(const F4SE::LoadInterface* a_f4se)
 {
