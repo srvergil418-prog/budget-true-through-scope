@@ -17,6 +17,12 @@ project(
 	LANGUAGES CXX
 )
 
+# CommonLibF4 用 cxx_std_23；这里显式钉住，避免 compile-feature 传播没落到本 target
+# 时 constinit / concepts 之类的 C++20 语法报 "syntax error"。
+set(CMAKE_CXX_STANDARD 20)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+set(CMAKE_CXX_EXTENSIONS OFF)
+
 # CMAKE_SIZEOF_VOID_P 只有在 project() 之后才可用
 if (CMAKE_SIZEOF_VOID_P EQUAL 8)
 	add_definitions(-D_AMD64_ -D_WIN64)
