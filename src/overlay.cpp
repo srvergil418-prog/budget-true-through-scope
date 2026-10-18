@@ -42,12 +42,16 @@ namespace RC
 			return false;
 		}
 
-		const uint32_t blockSize = (a_out.format == DXGI_FORMAT_R8G8B8A8_UNORM) ? 4u : 8u;
+		// 每块字节数：BC1=8，BC3/BC7=16，未压缩 RGBA8 按像素算
+		uint32_t bytesPerBlock = 16;
+		if (a_out.format == DXGI_FORMAT_BC1_UNORM || a_out.format == DXGI_FORMAT_BC1_UNORM_SRGB) {
+			bytesPerBlock = 8;
+		}
 		a_out.rowPitch = (a_out.format == DXGI_FORMAT_R8G8B8A8_UNORM)
 			? width * 4u
-			: ((width + 3u) / 4u) * blockSize;
+			: ((width + 3u) / 4u) * bytesPerBlock;
 
-		const uint64_t need = (uint64_t)a_out.dataOffset + (uint64_t)a_out.rowPitch * (height / 4u);
+		const uint64_t need = (uint64_t)a_out.dataOffset + (uint64_t)a_out.rowPitch * ((height + 3u) / 4u);
 		if ((uint64_t)a_size < need && a_out.format != DXGI_FORMAT_R8G8B8A8_UNORM) return false;
 		return width > 0 && height > 0;
 	}
