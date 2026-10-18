@@ -256,7 +256,9 @@ namespace RC
 		// 直接赋值会把透镜扔到错误的地方。
 		RE::NiPoint3 target{ g_lensOffX, g_lensOffY, g_lensOffZ };
 		if (auto* lenseAlign = FindNode(pc, "Lense")) {
-			const RE::NiPoint3 lw = lenseAlign->world.translate;
+			// 用包围球中心而不是节点原点：节点原点（world.translate）和镜片的
+			// 几何中心差得很远（实测 (7.08,30.79,104.60) vs (5.79,21.73,119.87)）。
+			const RE::NiPoint3 lw = lenseAlign->worldBound.center;
 			const auto& pW = weaponNode->world;
 			const float pScale = (std::fabs(pW.scale) > 1e-6f) ? pW.scale : 1.0f;
 			const RE::NiPoint3 d = lw - pW.translate;
