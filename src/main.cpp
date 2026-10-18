@@ -384,6 +384,36 @@ namespace RC
 			(void*)vb, vbd.ByteWidth, vbd.Usage, vbd.CPUAccessFlags, vbd.BindFlags, stride, voff);
 		Log("[CAP] IB ptr=%p bytes=%u usage=%u cpu=0x%X bind=0x%X fmt=%d offset=%u",
 			(void*)ib, ibd.ByteWidth, ibd.Usage, ibd.CPUAccessFlags, ibd.BindFlags, (int)ibFmt, ibOff);
+		Log("[CAP] vbOff=%u ibOff=%u diff=%lld", voff, ibOff, (long long)ibOff - (long long)voff);
+
+		// 当前绑定的 shader / input layout —— 用于身份交叉验证
+		ID3D11VertexShader* vs = nullptr;
+		ID3D11PixelShader* ps = nullptr;
+		ID3D11InputLayout* il = nullptr;
+		a_ctx->VSGetShader(&vs, nullptr, nullptr);
+		a_ctx->PSGetShader(&ps, nullptr, nullptr);
+		a_ctx->IAGetInputLayout(&il);
+		Log("[CAP] VS=%p PS=%p IL=%p", (void*)vs, (void*)ps, (void*)il);
+		if (vs) vs->Release();
+		if (ps) ps->Release();
+		if (il) il->Release();
+
+		// 光栅/混合/深度状态标识
+		ID3D11RasterizerState* rs = nullptr;
+		ID3D11BlendState* bs = nullptr;
+		ID3D11DepthStencilState* ds = nullptr;
+		a_ctx->RSGetState(&rs);
+		FLOAT blendFactor[4] = {};
+		UINT sampleMask = 0;
+		a_ctx->OMGetBlendState(&bs, blendFactor, &sampleMask);
+		UINT stencilRef = 0;
+		a_ctx->OMGetDepthStencilState(&ds, &stencilRef);
+		Log("[CAP] RS=%p BS=%p DS=%p stencilRef=%u blend=(%.2f,%.2f,%.2f,%.2f)",
+			(void*)rs, (void*)bs, (void*)ds, stencilRef,
+			blendFactor[0], blendFactor[1], blendFactor[2], blendFactor[3]);
+		if (rs) rs->Release();
+		if (bs) bs->Release();
+		if (ds) ds->Release();
 
 		// --- 只读：staging 拷贝索引缓冲 ---
 		const UINT ibBytesPerIndex = (ibFmt == DXGI_FORMAT_R32_UINT) ? 4u : 2u;
@@ -408,16 +438,25 @@ namespace RC
 				D3D11_MAPPED_SUBRESOURCE ms{};
 				if (SUCCEEDED(a_ctx->Map(staging, 0, D3D11_MAP_READ, 0, &ms))) {
 					const auto* idx = (const uint8_t*)ms.pData;
-					const UINT n = a_count < 96 ? a_count : 96;
+					// 完整读取全部索引（上一版只读了 96 个就下结论，是错的）
+					UINT mn = 0xFFFF, mx = 0;
+					bool seen[65536] = {};
+					UINT uniq = 0;
 					char line[400];
 					int written = 0;
-					for (UINT i = 0; i < n && written < 380; ++i) {
+					for (UINT i = 0; i < a_count; ++i) {
 						UINT v = (ibBytesPerIndex == 4)
 							? *((const uint32_t*)(idx + i * 4))
 							: *((const uint16_t*)(idx + i * 2));
-						written += sprintf_s(line + written, sizeof(line) - written, "%u ", v);
+						if (v < mn) mn = v;
+						if (v > mx) mx = v;
+						if (!seen[v]) { seen[v] = true; ++uniq; }
+						if (written < 380) {
+							written += sprintf_s(line + written, sizeof(line) - written, "%u ", v);
+						}
 					}
-					Log("[CAP] IB first %u indices: %s", n, line);
+					Log("[CAP] IB ALL %u indices: %s", a_count, line);
+					Log("[CAP] IB stats: min=%u max=%u unique=%u", mn, mx, uniq);
 					a_ctx->Unmap(staging, 0);
 				} else {
 					Log("[CAP] Map(IB staging) FAILED");
@@ -428,8 +467,8 @@ namespace RC
 			}
 		}
 
-		// --- 只读：staging 拷贝顶点缓冲（只取前 512 字节）---
-		const UINT vbReadBytes = (vbd.ByteWidth < 512) ? vbd.ByteWidth : 512;
+		// --- 只读：staging 拷贝顶点缓冲（48 × 20 = 960 字节，完整导出）---
+		const UINT vbReadBytes = (vbd.ByteWidth < 960) ? vbd.ByteWidth : 960;
 		if (vb && vbReadBytes > 0 && stride > 0) {
 			D3D11_BUFFER_DESC sd{};
 			sd.ByteWidth = vbReadBytes;
@@ -448,23 +487,35 @@ namespace RC
 				D3D11_MAPPED_SUBRESOURCE ms{};
 				if (SUCCEEDED(a_ctx->Map(staging, 0, D3D11_MAP_READ, 0, &ms))) {
 					const auto* raw = (const uint8_t*)ms.pData;
-					const UINT nVerts = (vbReadBytes / stride < 8) ? (vbReadBytes / stride) : 8;
-					Log("[CAP] VB first %u vertices (stride=%u), raw hex:", nVerts, stride);
+					const UINT nVerts = vbReadBytes / stride;
+					Log("[CAP] VB %u vertices (stride=%u), raw hex:", nVerts, stride);
 					for (UINT v = 0; v < nVerts; ++v) {
 						char hex[400];
 						int w = 0;
-						for (UINT b = 0; b < stride && b < 32 && w < 380; ++b) {
+						for (UINT b = 0; b < stride && w < 380; ++b) {
 							w += sprintf_s(hex + w, sizeof(hex) - w, "%02X ", raw[v * stride + b]);
 						}
-						char flt[400];
-						int wf = 0;
-						for (UINT f = 0; f + 4 <= stride && f < 24 && wf < 380; f += 4) {
+						Log("[CAP] v%u: %s", v, hex);
+					}
+					// 每个 4 字节区段的候选统计（不命名 POSITION，只给数据）
+					Log("[CAP] per-4byte-slot stats (candidate only):");
+					for (UINT f = 0; f + 4 <= stride; f += 4) {
+						float mnF = 1e30f, mxF = -1e30f;
+						bool anyFinite = false;
+						for (UINT v = 0; v < nVerts; ++v) {
 							float fv = 0.0f;
 							memcpy(&fv, raw + v * stride + f, 4);
-							wf += sprintf_s(flt + wf, sizeof(flt) - wf, "[%u]%.4f ", f, fv);
+							if (fv > -1e37f && fv < 1e37f) {
+								anyFinite = true;
+								if (fv < mnF) mnF = fv;
+								if (fv > mxF) mxF = fv;
+							}
 						}
-						Log("[CAP] v%u: %s", v, hex);
-						Log("[CAP] v%u as float: %s", v, flt);
+						if (anyFinite) {
+							Log("[CAP] slot[%u]: min=%.5f max=%.5f", f, mnF, mxF);
+						} else {
+							Log("[CAP] slot[%u]: no finite float range (likely packed/normal data)", f);
+						}
 					}
 					a_ctx->Unmap(staging, 0);
 				} else {
