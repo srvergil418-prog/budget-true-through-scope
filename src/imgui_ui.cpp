@@ -81,6 +81,8 @@ namespace RC
 	}
 	bool ImGui_menuOpen() { return s_menu; }
 
+	static float ClampF(float v, float lo, float hi) { return v < lo ? lo : (v > hi ? hi : v); }
+
 	void ImGui_Render(IDXGISwapChain* a_sc)
 	{
 		if (!s_init) return;
@@ -94,13 +96,13 @@ namespace RC
 			ImGui::PushID(label);
 			ImGui::TextUnformatted(label);
 			ImGui::SameLine(150.0f);
-			if (ImGui::Button("-")) *v = ImClamp(*v - step, vmin, vmax);
+			if (ImGui::Button("-")) *v = ClampF(*v - step, vmin, vmax);
 			ImGui::SameLine();
 			ImGui::SetNextItemWidth(110.0f);
 			ImGui::InputFloat("##v", v, 0.0f, 0.0f, "%.3f");
-			*v = ImClamp(*v, vmin, vmax);
+			*v = ClampF(*v, vmin, vmax);
 			ImGui::SameLine();
-			if (ImGui::Button("+")) *v = ImClamp(*v + step, vmin, vmax);
+			if (ImGui::Button("+")) *v = ClampF(*v + step, vmin, vmax);
 			ImGui::SameLine();
 			if (ImGui::Button("reset")) *v = def;
 			ImGui::PopID();
