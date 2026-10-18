@@ -305,6 +305,108 @@ namespace RC
 	using DrawIndexed_t = void(STDMETHODCALLTYPE*)(ID3D11DeviceContext*, UINT, UINT, INT);
 	static DrawIndexed_t s_origDrawIndexed = nullptr;
 
+	// ======================= 透镜绘制：屏幕 UV 准星 =======================
+	// 命中透镜的 DrawIndexed 时，换上这个像素着色器：用屏幕坐标采样准星贴图，
+	// 准星之外输出全透明。于是准星"钉在屏幕上"，但只有透镜几何体覆盖的像素
+	// 才会被画出来 —— 也就是"只有透过透镜才看得见"。
+	namespace LensDraw
+	{
+		static ID3D11PixelShader* s_ps = nullptr;
+		static ID3D11Buffer* s_cb = nullptr;
+		static ID3D11ShaderResourceView* s_srv = nullptr;
+		static ID3D11SamplerState* s_samp = nullptr;
+
+		struct Cb
+		{
+			float screenW, screenH, centerX, centerY, size, alpha, pad0, pad1;
+		};
+
+		static void Init(ID3D11Device* a_dev)
+		{
+			if (s_ps || !a_dev) return;
+
+			static const char* kPs = R"(
+cbuffer Cb : register(b0) {
+    float screenW, screenH, centerX, centerY, size, alpha, pad0, pad1;
+};
+Texture2D    gTex  : register(t0);
+SamplerState gSamp : register(s0);
+float4 main(float4 pos : SV_POSITION) : SV_Target {
+    float2 uv = (pos.xy - float2(centerX, centerY)) / size + 0.5;
+    if (uv.x < 0.0 || uv.x > 1.0 || uv.y < 0.0 || uv.y > 1.0) return float4(0.0, 0.0, 0.0, 0.0);
+    float4 c = gTex.Sample(gSamp, uv);
+    return float4(c.rgb, c.a * alpha);
+}
+)";
+
+			ID3DBlob* blob = nullptr;
+			ID3DBlob* err = nullptr;
+			const HRESULT hr = D3DCompile(kPs, strlen(kPs), nullptr, nullptr, nullptr, "main", "ps_5_0",
+				D3DCOMPILE_OPTIMIZATION_LEVEL3, 0, &blob, &err);
+			if (FAILED(hr) || !blob) {
+				Log("[LENSDRAW] ps compile FAILED 0x%08X", (unsigned)hr);
+				if (err) err->Release();
+				return;
+			}
+			a_dev->CreatePixelShader(blob->GetBufferPointer(), blob->GetBufferSize(), nullptr, &s_ps);
+			blob->Release();
+			if (err) err->Release();
+
+			D3D11_BUFFER_DESC bd{};
+			bd.ByteWidth = sizeof(Cb);
+			bd.Usage = D3D11_USAGE_DYNAMIC;
+			bd.BindFlags = D3D11_BIND_CONSTANT_BUFFER;
+			bd.CPUAccessFlags = D3D11_CPU_ACCESS_WRITE;
+			a_dev->CreateBuffer(&bd, nullptr, &s_cb);
+
+			D3D11_SAMPLER_DESC sd{};
+			sd.Filter = D3D11_FILTER_MIN_MAG_MIP_LINEAR;
+			sd.AddressU = sd.AddressV = sd.AddressW = D3D11_TEXTURE_ADDRESS_CLAMP;
+			sd.ComparisonFunc = D3D11_COMPARISON_NEVER;
+			sd.MaxLOD = D3D11_FLOAT32_MAX;
+			a_dev->CreateSamplerState(&sd, &s_samp);
+
+			wchar_t wpath[MAX_PATH] = {};
+			MultiByteToWideChar(CP_ACP, 0, kReticleDds, -1, wpath, MAX_PATH);
+			LoadDdsSrv(a_dev, wpath, &s_srv);
+
+			Log("[LENSDRAW] init ok ps=%d srv=%d", s_ps ? 1 : 0, s_srv ? 1 : 0);
+		}
+
+		static void Draw(ID3D11DeviceContext* a_ctx, UINT a_count, UINT a_start, INT a_base)
+		{
+			if (!s_ps || !s_cb) return;
+
+			const auto& gs = RE::BSGraphics::State::GetSingleton();
+			Cb cb{};
+			cb.screenW = (float)gs.backBufferWidth;
+			cb.screenH = (float)gs.backBufferHeight;
+			cb.centerX = cb.screenW * 0.5f + g_reticleOffX;
+			cb.centerY = cb.screenH * 0.5f + g_reticleOffY;
+			cb.size = g_reticleSize * g_reticleScale;
+			cb.alpha = 1.0f;
+
+			D3D11_MAPPED_SUBRESOURCE ms{};
+			if (SUCCEEDED(a_ctx->Map(s_cb, 0, D3D11_MAP_WRITE_DISCARD, 0, &ms))) {
+				std::memcpy(ms.pData, &cb, sizeof(cb));
+				a_ctx->Unmap(s_cb, 0);
+			}
+
+			ID3D11PixelShader* oldPS = nullptr;
+			a_ctx->PSGetShader(&oldPS, nullptr, nullptr);
+
+			a_ctx->PSSetShader(s_ps, nullptr, 0);
+			a_ctx->PSSetConstantBuffers(0, 1, &s_cb);
+			a_ctx->PSSetShaderResources(0, 1, &s_srv);
+			a_ctx->PSSetSamplers(0, 1, &s_samp);
+
+			s_origDrawIndexed(a_ctx, a_count, a_start, a_base);
+
+			a_ctx->PSSetShader(oldPS, nullptr, 0);
+			if (oldPS) oldPS->Release();
+		}
+	}
+
 	static void STDMETHODCALLTYPE hkDrawIndexed(ID3D11DeviceContext* a_ctx, UINT a_count, UINT a_start, INT a_base)
 	{
 		if (s_lensIndexCount > 0 && a_count == s_lensIndexCount) {
@@ -313,6 +415,8 @@ namespace RC
 				s_detected++;
 				Log("[DRAW] lens draw hit: count=%u start=%u base=%d", a_count, a_start, a_base);
 			}
+			LensDraw::Draw(a_ctx, a_count, a_start, a_base);
+			return;
 		}
 		s_origDrawIndexed(a_ctx, a_count, a_start, a_base);
 	}
@@ -488,6 +592,7 @@ namespace RC
 				if (MH_CreateHook(vtCtx[12], (LPVOID)&hkDrawIndexed, (LPVOID*)&s_origDrawIndexed) == MH_OK) {
 					MH_EnableHook(vtCtx[12]);
 					Log("[INIT] DrawIndexed hooked @ %p", vtCtx[12]);
+					LensDraw::Init((ID3D11Device*)static_cast<void*>(rdGi->device));
 				} else {
 					Log("[INIT] DrawIndexed hook FAILED");
 				}
