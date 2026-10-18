@@ -37,6 +37,7 @@ namespace RC
 	extern float g_maskRadius;    // 遮罩半径（像素）
 	extern float g_maskRadiusScale; // auto 模式下对自动半径的缩放
 	extern bool  g_maskAuto;      // true = 用镜片方向自动算遮罩（B 方案）
+	extern float g_fovOverride;   // >0 = ADS 时强制这个 FOV，<=0 = 用游戏默认
 
 	// ---- overlay（overlay.cpp 实现）----
 	void OverlayDraw(IDXGISwapChain* a_swapChain);
