@@ -27,30 +27,49 @@ function Write-NoBom([string]$path, [string]$text) { [System.IO.File]::WriteAllT
 
 # ================================================================ 0) 把 ImageSpaceEffect.h 换成 dev-1.10.163 的版本
 #
-# master 的这个头文件里，bDisable 等是
+# master 的很多头文件里是
 #     inline static REL::Relocation<bool*> bDisable{ REL::ID(2713225) };
-# —— class-scope static，DLL 一加载（早于 DllMain）就初始化，而 2713225 是
-# 新版本游戏的 ID，1.10.163 的地址库里没有 -> 直接弹
-#     REL/IDDB.cpp(127): id 2713225 not found!
-# 并用 MessageBox 终止进程。dev-1.10.163 分支同一位置是 1500590，对得上。
+#     inline REL::Relocation<PlacementItemData*> CurrentPlacementItemData{ REL::ID(4797261) };
+# —— class-scope static，DLL 一加载（早于 DllMain）就初始化，而这些是新版本
+# 游戏的 ID，1.10.163 的地址库里没有 -> 直接弹
+#     REL/IDDB.cpp(127): id ... not found!
+# 并用 MessageBox 终止进程。逐个修不现实（会一个一个冒出来），
+# 所以整套 overlay dev-1.10.163（它的 ID 100% 对得上 1.10.163）：
+#   - git checkout 只更新 ref 里存在的文件，不会删掉 master-only 的头
+#   - 同时覆盖 src / CMakeLists.txt，保证头和源版本一致
+#   - 唯一例外：dev 缺 F4SE::PluginVersionData，所以单独把 master 的
+#     Interfaces.h 补回来（它的 0.6.23 ABI 问题由下面第 3 步 patch 修）
 $clf4 = Join-Path $root 'CommonLibF4'
-$target = Join-Path $clf4 'CommonLibF4/include/RE/Bethesda/ImageSpaceEffect.h'
-if ((Test-Path (Join-Path $clf4 '.git')) -and (Test-Path $target)) {
+if (Test-Path (Join-Path $clf4 '.git')) {
     Push-Location $clf4
     try {
         git fetch --depth=1 origin dev-1.10.163 2>&1 | Out-Null
         if ($LASTEXITCODE -ne 0) { throw 'git fetch dev-1.10.163 failed' }
-        $devText = git show FETCH_HEAD:CommonLibF4/include/RE/Bethesda/ImageSpaceEffect.h 2>&1
-        if ($LASTEXITCODE -ne 0) { throw 'git show ImageSpaceEffect.h failed' }
-        $devText = ($devText -join "`r`n")
-        if ($devText -notmatch 'REL::ID') { throw 'ImageSpaceEffect.h from dev has no REL::ID -- unexpected' }
-        [System.IO.File]::WriteAllText($target, $devText, (New-Object System.Text.UTF8Encoding($false)))
-        Write-Host '  [0/4] ImageSpaceEffect.h -> dev-1.10.163 IDs' -ForegroundColor Green
+        git checkout --force FETCH_HEAD -- CommonLibF4 2>&1 | Out-Null
+        if ($LASTEXITCODE -ne 0) { throw 'git checkout dev CommonLibF4 failed' }
+
+        git checkout origin/master -- CommonLibF4/include/F4SE/Interfaces.h 2>&1 | Out-Null
+        if ($LASTEXITCODE -ne 0) { throw 'restore master Interfaces.h failed' }
+
+        # 自检：dev 树里那两个致命 ID 不能再出现
+        $ws = Join-Path $clf4 'CommonLibF4/include/RE/Bethesda/Workshop.h'
+        $ise = Join-Path $clf4 'CommonLibF4/include/RE/Bethesda/ImageSpaceEffect.h'
+        if ((Test-Path $ws) -and ((Get-Content $ws -Raw) -match 'REL::ID\(4797261\)')) {
+            throw 'Workshop.h still carries 4797261 after the dev overlay'
+        }
+        if ((Test-Path $ise) -and ((Get-Content $ise -Raw) -match 'REL::ID\(2713225\)')) {
+            throw 'ImageSpaceEffect.h still carries 2713225 after the dev overlay'
+        }
+        $intf = Join-Path $clf4 'CommonLibF4/include/F4SE/Interfaces.h'
+        if (-not ((Get-Content $intf -Raw) -match 'struct PluginVersionData')) {
+            throw 'Interfaces.h has no PluginVersionData -- master restore did not apply'
+        }
+        Write-Host '  [0/4] CommonLibF4 overlaid with dev-1.10.163 (+ master Interfaces.h)' -ForegroundColor Green
     } finally {
         Pop-Location
     }
 } else {
-    Write-Host '  [0/4] ImageSpaceEffect.h overlay skipped' -ForegroundColor Yellow
+    throw "CommonLibF4 is not a git checkout -- cannot overlay"
 }
 
 # ================================================================ 1) hkVector4.h
