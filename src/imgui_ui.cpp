@@ -21,6 +21,10 @@ namespace RC
 	float g_maskRadiusScale = 1.0f;
 	bool  g_maskAuto = false;       // B 方案：用镜片方向自动算遮罩
 	float g_fovOverride = 0.0f;     // >0 = ADS 时强制 FOV
+	float g_lensOffX = 0.0f;
+	float g_lensOffY = 0.0f;
+	float g_lensOffZ = 10.0f;
+	bool  g_lensEnabled = true;
 
 	static bool s_init = false;
 	static bool s_menu = false;
@@ -130,6 +134,13 @@ namespace RC
 			ImGui::Separator();
 			ImGui::Text("Camera FOV");
 			Row("fov (0 = game default)", &g_fovOverride, 0.0f, 1.0f, 0.0f, 150.0f);
+
+			ImGui::Separator();
+			ImGui::Text("Lens nif (B)");
+			ImGui::Checkbox("spawn lens", &g_lensEnabled);
+			Row("lens X", &g_lensOffX, 0.0f, 0.5f, -100.0f, 100.0f);
+			Row("lens Y", &g_lensOffY, 0.0f, 0.5f, -100.0f, 100.0f);
+			Row("lens Z", &g_lensOffZ, 10.0f, 0.5f, -100.0f, 100.0f);
 
 			ImGui::Separator();
 			ImGui::Text("auto raw: (%.0f, %.0f) r=%.0f", g_maskCX, g_maskCY, g_maskR);
