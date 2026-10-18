@@ -310,6 +310,14 @@ namespace RC
 
 	static HRESULT WINAPI hkPresent(IDXGISwapChain* a_sc, UINT a_sync, UINT a_flags)
 	{
+		// F7 开关调参菜单
+		static bool s_lastF7 = false;
+		const bool f7 = (GetAsyncKeyState(VK_F7) & 0x8000) != 0;
+		if (f7 && !s_lastF7) ImGui_Toggle();
+		s_lastF7 = f7;
+
+		ImGui_Render(a_sc);
+
 		// 屏幕层准星：固定在屏幕中心，不跟瞄具晃
 		OverlayDraw(a_sc);
 		return s_origPresent(a_sc, a_sync, a_flags);
@@ -340,6 +348,16 @@ namespace RC
 				Log("[INIT] Present hooked @ %p", vt[8]);
 			} else {
 				Log("[INIT] Present hook FAILED");
+			}
+
+			// 初始化调参菜单（F7）——需要 device / context / 窗口句柄
+			DXGI_SWAP_CHAIN_DESC sd{};
+			if (SUCCEEDED(sc->GetDesc(&sd))) {
+				auto* dev = (ID3D11Device*)static_cast<void*>(rd->device);
+				auto* ctx = (ID3D11DeviceContext*)static_cast<void*>(rd->context);
+				ImGui_Init(dev, ctx, sd.OutputWindow);
+			} else {
+				Log("[INIT] swapchain GetDesc failed (menu disabled)");
 			}
 		} else {
 			Log("[INIT] RendererData/swapChain NULL");
