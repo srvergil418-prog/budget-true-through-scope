@@ -443,7 +443,7 @@ float4 main(float4 pos : SV_POSITION) : SV_Target {
 
 	static void STDMETHODCALLTYPE hkDrawIndexed(ID3D11DeviceContext* a_ctx, UINT a_count, UINT a_start, INT a_base)
 	{
-		if (s_lensIndexCount > 0 && a_count == s_lensIndexCount) {
+		if (s_lensIndexCount > 0 && a_count == s_lensIndexCount && g_ads.load()) {
 			static int s_detected = 0;
 			if (s_detected < 10) {
 				s_detected++;
@@ -473,8 +473,13 @@ float4 main(float4 pos : SV_POSITION) : SV_Target {
 			if (ads) s_frame++;
 
 			if (ads) {
-				// 每帧算镜片投影（屏幕层遮罩用）
+				// 每帧算镜片投影（诊断用）
 				UpdateMask(a_pc);
+
+				// 透镜只在开镜时可见
+				if (s_lensNode && s_lensNode->GetAppCulled()) {
+					s_lensNode->SetAppCulled(false);
+				}
 
 				// 隐藏原 STS 准星（它贴在瞄具上会跟着晃）
 				{
@@ -543,6 +548,8 @@ float4 main(float4 pos : SV_POSITION) : SV_Target {
 				}
 			} else if (s_lastADS) {
 				g_maskR = 0.0f;
+				// 收镜：透镜隐藏，避免不开镜也能看见准星
+				if (s_lensNode) s_lensNode->SetAppCulled(true);
 				// 退出开镜：把相机 FOV 还给游戏（掏枪/收镜后就是镜子自己的默认值）
 				if (s_fovSaved) {
 					if (auto* cam = RE::PlayerCamera::GetSingleton()) {
