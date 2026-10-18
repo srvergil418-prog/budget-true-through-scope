@@ -276,6 +276,43 @@ namespace RC
 
 		s_lensNode = node;
 		Log("[LENS] spawned (%s) children=%zu", node->name.c_str(), node->children.size());
+		CacheLensIndexCount(node);
+	}
+
+	// ======================= 透镜绘制识别 =======================
+	// 透镜几何体的索引数（numTriangles * 3），主线程从 BSTriShape 读出来。
+	// 渲染线程在 DrawIndexed 里拿 IndexCount 和它比对，就能认出"这次画的是透镜"。
+	static UINT s_lensIndexCount = 0;
+
+	static void CacheLensIndexCount(RE::NiAVObject* a_node)
+	{
+		if (!a_node) return;
+		if (auto* tri = a_node->IsTriShape()) {
+			s_lensIndexCount = tri->numTriangles * 3u;
+			Log("[LENS] indexCount=%u (tri=%u vert=%u)",
+				s_lensIndexCount, tri->numTriangles, (unsigned)tri->numVertices);
+			return;
+		}
+		if (auto* node = a_node->IsNode()) {
+			for (auto& c : node->children) {
+				if (c) CacheLensIndexCount(c.get());
+			}
+		}
+	}
+
+	using DrawIndexed_t = void(STDMETHODCALLTYPE*)(ID3D11DeviceContext*, UINT, UINT, INT);
+	static DrawIndexed_t s_origDrawIndexed = nullptr;
+
+	static void STDMETHODCALLTYPE hkDrawIndexed(ID3D11DeviceContext* a_ctx, UINT a_count, UINT a_start, INT a_base)
+	{
+		if (s_lensIndexCount > 0 && a_count == s_lensIndexCount) {
+			static int s_detected = 0;
+			if (s_detected < 10) {
+				s_detected++;
+				Log("[DRAW] lens draw hit: count=%u start=%u base=%d", a_count, a_start, a_base);
+			}
+		}
+		s_origDrawIndexed(a_ctx, a_count, a_start, a_base);
 	}
 
 	// ======================= 主线程每帧 =======================
@@ -438,6 +475,23 @@ namespace RC
 			Log("[INIT] ClipCursor hooked");
 		} else {
 			Log("[INIT] ClipCursor hook FAILED");
+		}
+
+		// 透镜绘制识别：hook ID3D11DeviceContext::DrawIndexed (vtable[12])
+		{
+			auto* rdGi = RE::BSGraphics::RendererData::GetSingleton();
+			if (rdGi && rdGi->context) {
+				auto* ctx = (ID3D11DeviceContext*)static_cast<void*>(rdGi->context);
+				void** vtCtx = *(void***)ctx;
+				if (MH_CreateHook(vtCtx[12], (LPVOID)&hkDrawIndexed, (LPVOID*)&s_origDrawIndexed) == MH_OK) {
+					MH_EnableHook(vtCtx[12]);
+					Log("[INIT] DrawIndexed hooked @ %p", vtCtx[12]);
+				} else {
+					Log("[INIT] DrawIndexed hook FAILED");
+				}
+			} else {
+				Log("[INIT] context NULL (no DrawIndexed hook)");
+			}
 		}
 
 		auto* rd = RE::BSGraphics::RendererData::GetSingleton();
