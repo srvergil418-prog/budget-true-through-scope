@@ -30,16 +30,15 @@ jobs:
       - name: Checkout plugins sources
         uses: actions/checkout@v4
 
-      - name: Checkout CommonLibF4 (powerof3 dev-1.10.163)
-        # 必须用 dev-1.10.163：master 的 REL::ID 是新版本的，1.10.163 地址库
-        # 里不存在（例如 ImageSpaceEffect.h 的 2713225），而这类 ID 是
-        # class-scope inline static REL::Relocation，DLL 加载时就会初始化，
-        # 直接弹 "REL/IDDB.cpp(127): id ... not found" 并终止进程。
+      - name: Checkout CommonLibF4 (powerof3 master)
+        # 用 master：dev-1.10.163 分支缺 F4SE::PluginVersionData，插件入口编不出来。
+        # master 的 REL::ID 问题由 ci/build.ps1 里「换掉 ImageSpaceEffect.h」那一步处理。
         uses: actions/checkout@v4
         with:
           repository: powerof3/CommonLibF4
-          ref: dev-1.10.163
+          ref: master
           path: CommonLibF4
+          fetch-depth: 0
           clean: false
 
       - name: Setup vcpkg
