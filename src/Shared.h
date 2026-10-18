@@ -31,9 +31,11 @@ namespace RC
 	extern float g_reticleOffX;   // 准星相对屏幕中心的偏移
 	extern float g_reticleOffY;
 	extern float g_reticleScale;  // 准星缩放
+	extern float g_reticleSize;   // 准星基准边长（像素），与遮罩半径无关
 	extern float g_maskOffX;      // 遮罩圆心相对屏幕中心的偏移
 	extern float g_maskOffY;
 	extern float g_maskRadius;    // 遮罩半径（像素）
+	extern bool  g_maskAuto;      // true = 用镜片方向自动算遮罩（B 方案）
 
 	// ---- overlay（overlay.cpp 实现）----
 	void OverlayDraw(IDXGISwapChain* a_swapChain);
