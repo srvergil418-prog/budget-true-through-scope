@@ -48,9 +48,6 @@ if (Test-Path (Join-Path $clf4 '.git')) {
         git checkout --force FETCH_HEAD -- CommonLibF4 2>&1 | Out-Null
         if ($LASTEXITCODE -ne 0) { throw 'git checkout dev CommonLibF4 failed' }
 
-        git checkout origin/master -- CommonLibF4/include/F4SE/Interfaces.h 2>&1 | Out-Null
-        if ($LASTEXITCODE -ne 0) { throw 'restore master Interfaces.h failed' }
-
         # 自检：dev 树里那两个致命 ID 不能再出现
         $ws = Join-Path $clf4 'CommonLibF4/include/RE/Bethesda/Workshop.h'
         $ise = Join-Path $clf4 'CommonLibF4/include/RE/Bethesda/ImageSpaceEffect.h'
@@ -60,11 +57,7 @@ if (Test-Path (Join-Path $clf4 '.git')) {
         if ((Test-Path $ise) -and ((Get-Content $ise -Raw) -match 'REL::ID\(2713225\)')) {
             throw 'ImageSpaceEffect.h still carries 2713225 after the dev overlay'
         }
-        $intf = Join-Path $clf4 'CommonLibF4/include/F4SE/Interfaces.h'
-        if (-not ((Get-Content $intf -Raw) -match 'struct PluginVersionData')) {
-            throw 'Interfaces.h has no PluginVersionData -- master restore did not apply'
-        }
-        Write-Host '  [0/4] CommonLibF4 overlaid with dev-1.10.163 (+ master Interfaces.h)' -ForegroundColor Green
+        Write-Host '  [0/4] CommonLibF4 overlaid with dev-1.10.163 (IDs valid for 1.10.163)' -ForegroundColor Green
     } finally {
         Pop-Location
     }
