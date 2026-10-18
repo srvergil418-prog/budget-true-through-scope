@@ -50,7 +50,32 @@ namespace RC
 		return true;
 	}
 
-	void ImGui_Toggle() { s_menu = !s_menu; }
+	// 菜单开关：除切换显示外，还要处理"游戏抢鼠标"和"光标可见性"。
+	// ShowCursor 是【计数器】而不是开关（TRUE 加 1 / FALSE 减 1，计数 >= 0 才可见），
+	// 所以两边都要用循环压到位，不能只调一次。
+	static void SetCursorVisible(bool a_visible)
+	{
+		int count = ShowCursor(a_visible ? TRUE : FALSE);
+		for (int i = 0; i < 50 && (a_visible ? (count < 0) : (count >= 0)); i++) {
+			count = ShowCursor(a_visible ? TRUE : FALSE);
+		}
+	}
+
+	void ImGui_Toggle()
+	{
+		s_menu = !s_menu;
+
+		SetCursorVisible(s_menu);
+
+		// 菜单打开时让游戏不再吃掉鼠标（否则镜头还在跟着动）
+		if (auto* cm = RE::ControlMap::GetSingleton()) {
+			cm->ignoreKeyboardMouse = s_menu;
+		} else {
+			Log("[IMGUI] ControlMap NULL");
+		}
+
+		Log("[IMGUI] menu=%d", s_menu ? 1 : 0);
+	}
 	bool ImGui_menuOpen() { return s_menu; }
 
 	void ImGui_Render(IDXGISwapChain* a_sc)
