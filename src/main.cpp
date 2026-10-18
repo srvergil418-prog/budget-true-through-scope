@@ -227,7 +227,10 @@ namespace RC
 	}
 }
 
-F4SE_EXPORT constinit auto F4SEPlugin_Version = []() noexcept {
+// 不用 F4SE_EXPORT 宏：它展开成 `extern "C" [[maybe_unused]] __declspec(dllexport)`，
+// 后面接 constinit 在部分宏组合/标准设置下会报 "auto should be preceded by ';'"。
+// 显式写出导出属性，并且不用 constinit。
+extern "C" __declspec(dllexport) F4SE::PluginVersionData F4SEPlugin_Version = []() noexcept {
 	F4SE::PluginVersionData data{};
 	data.AuthorName("ReticleCenter");
 	data.PluginName("ReticleCenter");
@@ -240,7 +243,7 @@ F4SE_EXPORT constinit auto F4SEPlugin_Version = []() noexcept {
 	return data;
 }();
 
-F4SE_EXPORT bool F4SEAPI F4SEPlugin_Load(const F4SE::LoadInterface* a_f4se)
+extern "C" __declspec(dllexport) bool F4SEPlugin_Load(const F4SE::LoadInterface* a_f4se)
 {
 	F4SE::Init(a_f4se);
 	RC::Log("=== ReticleCenter loaded (build %s %s) ===", __DATE__, __TIME__);
