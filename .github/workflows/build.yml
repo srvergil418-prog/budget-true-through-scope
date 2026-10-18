@@ -41,6 +41,14 @@ jobs:
           fetch-depth: 0
           clean: false
 
+      - name: Checkout ImGui (docking, for the in-game tuning menu)
+        uses: actions/checkout@v4
+        with:
+          repository: ocornut/imgui
+          ref: v1.92.9b-docking
+          path: imgui
+          clean: false
+
       - name: Setup vcpkg
         shell: pwsh
         run: |
