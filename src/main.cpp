@@ -353,6 +353,135 @@ namespace RC
 	static UINT s_lensIndexCount = 0;
 	static UINT s_diskIndexCount = 0;
 
+	// ======================= ScopeFade 只读诊断 =======================
+	// 一次性捕获 ScopeFade 候选 draw 的 VB/IB 身份与原始数据。
+	// 遵守约束：不 Map 游戏缓冲（用 staging + CopyResource）、只捕获一次、
+	// 不逐帧、不改变任何渲染状态、释放所有 COM 引用。
+	static bool s_fadeCaptured = false;
+
+	static void CaptureScopeFade(ID3D11DeviceContext* a_ctx, UINT a_count, UINT a_start, INT a_base)
+	{
+		ID3D11Device* dev = nullptr;
+		a_ctx->GetDevice(&dev);
+		if (!dev) { Log("[CAP] GetDevice FAILED"); return; }
+
+		// --- 身份 ---
+		ID3D11Buffer* vb = nullptr;
+		UINT stride = 0, voff = 0;
+		a_ctx->IAGetVertexBuffers(0, 1, &vb, &stride, &voff);
+
+		ID3D11Buffer* ib = nullptr;
+		DXGI_FORMAT ibFmt = DXGI_FORMAT_UNKNOWN;
+		UINT ibOff = 0;
+		a_ctx->IAGetIndexBuffer(&ib, &ibFmt, &ibOff);
+
+		D3D11_BUFFER_DESC vbd{}, ibd{};
+		if (vb) vb->GetDesc(&vbd);
+		if (ib) ib->GetDesc(&ibd);
+
+		Log("[CAP] draw: count=%u start=%u base=%d", a_count, a_start, a_base);
+		Log("[CAP] VB ptr=%p bytes=%u usage=%u cpu=0x%X bind=0x%X stride=%u voff=%u",
+			(void*)vb, vbd.ByteWidth, vbd.Usage, vbd.CPUAccessFlags, vbd.BindFlags, stride, voff);
+		Log("[CAP] IB ptr=%p bytes=%u usage=%u cpu=0x%X bind=0x%X fmt=%d offset=%u",
+			(void*)ib, ibd.ByteWidth, ibd.Usage, ibd.CPUAccessFlags, ibd.BindFlags, (int)ibFmt, ibOff);
+
+		// --- 只读：staging 拷贝索引缓冲 ---
+		const UINT ibBytesPerIndex = (ibFmt == DXGI_FORMAT_R32_UINT) ? 4u : 2u;
+		const UINT ibReadBytes = a_count * ibBytesPerIndex;
+		const UINT ibReadOff = ibOff + a_start * ibBytesPerIndex;
+
+		if (ib && ibReadBytes > 0 && ibReadBytes < 65536 && ibReadOff + ibReadBytes <= ibd.ByteWidth) {
+			D3D11_BUFFER_DESC sd{};
+			sd.ByteWidth = ibReadBytes;
+			sd.Usage = D3D11_USAGE_STAGING;
+			sd.CPUAccessFlags = D3D11_CPU_ACCESS_READ;
+			sd.BindFlags = 0;
+			ID3D11Buffer* staging = nullptr;
+			if (SUCCEEDED(dev->CreateBuffer(&sd, nullptr, &staging)) && staging) {
+				D3D11_BOX box{};
+				box.left = ibReadOff;
+				box.right = ibReadOff + ibReadBytes;
+				box.top = 0; box.bottom = 1;
+				box.front = 0; box.back = 1;
+				a_ctx->CopySubresourceRegion(staging, 0, 0, 0, 0, ib, 0, &box);
+
+				D3D11_MAPPED_SUBRESOURCE ms{};
+				if (SUCCEEDED(a_ctx->Map(staging, 0, D3D11_MAP_READ, 0, &ms))) {
+					const auto* idx = (const uint8_t*)ms.pData;
+					const UINT n = a_count < 96 ? a_count : 96;
+					char line[400];
+					int written = 0;
+					for (UINT i = 0; i < n && written < 380; ++i) {
+						UINT v = (ibBytesPerIndex == 4)
+							? *((const uint32_t*)(idx + i * 4))
+							: *((const uint16_t*)(idx + i * 2));
+						written += sprintf_s(line + written, sizeof(line) - written, "%u ", v);
+					}
+					Log("[CAP] IB first %u indices: %s", n, line);
+					a_ctx->Unmap(staging, 0);
+				} else {
+					Log("[CAP] Map(IB staging) FAILED");
+				}
+				staging->Release();
+			} else {
+				Log("[CAP] CreateBuffer(IB staging) FAILED");
+			}
+		}
+
+		// --- 只读：staging 拷贝顶点缓冲（只取前 512 字节）---
+		const UINT vbReadBytes = (vbd.ByteWidth < 512) ? vbd.ByteWidth : 512;
+		if (vb && vbReadBytes > 0 && stride > 0) {
+			D3D11_BUFFER_DESC sd{};
+			sd.ByteWidth = vbReadBytes;
+			sd.Usage = D3D11_USAGE_STAGING;
+			sd.CPUAccessFlags = D3D11_CPU_ACCESS_READ;
+			sd.BindFlags = 0;
+			ID3D11Buffer* staging = nullptr;
+			if (SUCCEEDED(dev->CreateBuffer(&sd, nullptr, &staging)) && staging) {
+				D3D11_BOX box{};
+				box.left = voff;
+				box.right = voff + vbReadBytes;
+				box.top = 0; box.bottom = 1;
+				box.front = 0; box.back = 1;
+				a_ctx->CopySubresourceRegion(staging, 0, 0, 0, 0, vb, 0, &box);
+
+				D3D11_MAPPED_SUBRESOURCE ms{};
+				if (SUCCEEDED(a_ctx->Map(staging, 0, D3D11_MAP_READ, 0, &ms))) {
+					const auto* raw = (const uint8_t*)ms.pData;
+					const UINT nVerts = (vbReadBytes / stride < 8) ? (vbReadBytes / stride) : 8;
+					Log("[CAP] VB first %u vertices (stride=%u), raw hex:", nVerts, stride);
+					for (UINT v = 0; v < nVerts; ++v) {
+						char hex[400];
+						int w = 0;
+						for (UINT b = 0; b < stride && b < 32 && w < 380; ++b) {
+							w += sprintf_s(hex + w, sizeof(hex) - w, "%02X ", raw[v * stride + b]);
+						}
+						char flt[400];
+						int wf = 0;
+						for (UINT f = 0; f + 4 <= stride && f < 24 && wf < 380; f += 4) {
+							float fv = 0.0f;
+							memcpy(&fv, raw + v * stride + f, 4);
+							wf += sprintf_s(flt + wf, sizeof(flt) - wf, "[%u]%.4f ", f, fv);
+						}
+						Log("[CAP] v%u: %s", v, hex);
+						Log("[CAP] v%u as float: %s", v, flt);
+					}
+					a_ctx->Unmap(staging, 0);
+				} else {
+					Log("[CAP] Map(VB staging) FAILED");
+				}
+				staging->Release();
+			} else {
+				Log("[CAP] CreateBuffer(VB staging) FAILED");
+			}
+		}
+
+		if (vb) vb->Release();
+		if (ib) ib->Release();
+		dev->Release();
+		Log("[CAP] done");
+	}
+
 	static void CacheLenseIndexCount(RE::PlayerCharacter* a_pc)
 	{
 		if (s_lensIndexCount > 0) return;
@@ -516,6 +645,13 @@ float4 main(float4 pos : SV_POSITION) : SV_Target {
 
 	static void STDMETHODCALLTYPE hkDrawIndexed(ID3D11DeviceContext* a_ctx, UINT a_count, UINT a_start, INT a_base)
 	{
+		// 一次性只读诊断：捕获第一个被判定为 ScopeFade 候选的 draw（144 索引）。
+		// 锁存后不再触发，避免逐帧 Copy/Map 造成卡顿。
+		if (!s_fadeCaptured && a_count == 144 && g_ads.load()) {
+			s_fadeCaptured = true;
+			CaptureScopeFade(a_ctx, a_count, a_start, a_base);
+		}
+
 		// 照 TTS 的 IsTargetDrawCall：用「索引数 + 顶点 stride」双重匹配。
 		// 光比索引数会误伤（96 有两个几何体、384 和天空撞车），
 		// stride 才是我们圆盘特有的指纹（TTS 的 TARGET_STRIDE = 28）。
