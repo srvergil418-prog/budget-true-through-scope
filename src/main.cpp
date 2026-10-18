@@ -426,11 +426,14 @@ cbuffer Cb : register(b0) {
 Texture2D    gTex  : register(t0);
 SamplerState gSamp : register(s0);
 float4 main(float4 pos : SV_POSITION) : SV_Target {
-    // 屏幕 UV 采样准星：准星钉在屏幕上，但只有透镜几何体覆盖的像素会画出来。
-    float2 uv = (pos.xy - float2(centerX, centerY)) / size + 0.5;
-    if (uv.x < 0.0 || uv.x > 1.0 || uv.y < 0.0 || uv.y > 1.0) return float4(0.0, 0.0, 0.0, 0.0);
-    float4 c = gTex.Sample(gSamp, uv);
-    return float4(c.rgb, c.a * alpha);
+    // 诊断：圆盘整片染绿。它应该正好盖住 ScopeFade 的洞。
+    return float4(0.0, 1.0, 0.0, 0.7);
+
+    // 正式逻辑：
+    // float2 uv = (pos.xy - float2(centerX, centerY)) / size + 0.5;
+    // if (uv.x < 0.0 || uv.x > 1.0 || uv.y < 0.0 || uv.y > 1.0) return float4(0.0, 0.0, 0.0, 0.0);
+    // float4 c = gTex.Sample(gSamp, uv);
+    // return float4(c.rgb, c.a * alpha);
 }
 )";
 
