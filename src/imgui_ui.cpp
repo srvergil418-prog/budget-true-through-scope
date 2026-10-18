@@ -14,9 +14,11 @@ namespace RC
 	float g_reticleOffX = 0.0f;
 	float g_reticleOffY = 0.0f;
 	float g_reticleScale = 1.0f;
+	float g_reticleSize = 500.0f;   // 准星基准边长（像素），与遮罩半径无关
 	float g_maskOffX = 0.0f;
 	float g_maskOffY = 0.0f;
-	float g_maskRadius = 324.0f;   // 默认 15% 屏高（2160*0.15）
+	float g_maskRadius = 324.0f;
+	bool  g_maskAuto = false;       // B 方案：用镜片方向自动算遮罩
 
 	static bool s_init = false;
 	static bool s_menu = false;
@@ -92,13 +94,16 @@ namespace RC
 			ImGui::Text("Reticle (screen space)");
 			ImGui::SliderFloat("offset X", &g_reticleOffX, -1500.0f, 1500.0f, "%.0f");
 			ImGui::SliderFloat("offset Y", &g_reticleOffY, -1500.0f, 1500.0f, "%.0f");
+			ImGui::SliderFloat("size", &g_reticleSize, 100.0f, 2000.0f, "%.0f");
 			ImGui::SliderFloat("scale", &g_reticleScale, 0.2f, 3.0f, "%.2f");
 			ImGui::Separator();
 			ImGui::Text("Mask circle");
+			ImGui::Checkbox("auto (lens direction)", &g_maskAuto);
 			ImGui::SliderFloat("mask X", &g_maskOffX, -1500.0f, 1500.0f, "%.0f");
 			ImGui::SliderFloat("mask Y", &g_maskOffY, -1500.0f, 1500.0f, "%.0f");
 			ImGui::SliderFloat("radius", &g_maskRadius, 20.0f, 1200.0f, "%.0f");
 			ImGui::Separator();
+			ImGui::Text("auto mask now: (%.0f, %.0f) r=%.0f", g_maskCX, g_maskCY, g_maskR);
 			ImGui::TextDisabled("red ring = mask border");
 			ImGui::End();
 		}
