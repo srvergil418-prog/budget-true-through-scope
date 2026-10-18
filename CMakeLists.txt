@@ -1,0 +1,78 @@
+cmake_minimum_required(VERSION 3.22)
+
+if (DEFINED ENV{VCPKG_ROOT})
+	set(CMAKE_TOOLCHAIN_FILE "$ENV{VCPKG_ROOT}/scripts/buildsystems/vcpkg.cmake" CACHE STRING "")
+	set(VCPKG_TARGET_TRIPLET "x64-windows-static-md" CACHE STRING "")
+else ()
+	message(WARNING "VCPKG_ROOT is not set; continuing without vcpkg")
+endif ()
+
+set(CMAKE_EXPORT_COMPILE_COMMANDS ON CACHE BOOL "")
+set(Boost_USE_STATIC_RUNTIME OFF CACHE BOOL "")
+set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>DLL" CACHE STRING "")
+
+project(
+	ReticleCenter
+	VERSION 0.1.0
+	LANGUAGES CXX
+)
+
+# CMAKE_SIZEOF_VOID_P 只有在 project() 之后才可用
+if (CMAKE_SIZEOF_VOID_P EQUAL 8)
+	add_definitions(-D_AMD64_ -D_WIN64)
+elseif (CMAKE_SIZEOF_VOID_P EQUAL 4)
+	add_definitions(-D_X86_)
+endif ()
+
+find_package(minhook CONFIG REQUIRED)
+
+if (NOT TARGET CommonLibF4)
+	if (EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/CommonLibF4")
+		add_subdirectory("${CMAKE_CURRENT_SOURCE_DIR}/CommonLibF4" CommonLibF4)
+	elseif (EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/../CommonLibF4")
+		add_subdirectory("${CMAKE_CURRENT_SOURCE_DIR}/../CommonLibF4" CommonLibF4)
+	else ()
+		message(FATAL_ERROR "CommonLibF4 not found (looked in ./CommonLibF4 and ../CommonLibF4)")
+	endif ()
+endif ()
+
+add_library(
+	${PROJECT_NAME}
+	SHARED
+	src/main.cpp
+	src/overlay.cpp
+)
+
+target_include_directories(
+	${PROJECT_NAME}
+	PRIVATE
+		${CMAKE_CURRENT_SOURCE_DIR}/src
+)
+
+target_link_libraries(
+	${PROJECT_NAME}
+	PRIVATE
+		minhook::minhook
+		CommonLibF4::CommonLibF4
+)
+
+target_precompile_headers(
+	${PROJECT_NAME}
+	PRIVATE
+		src/PCH.h
+)
+
+if (MSVC)
+	target_compile_options(
+		${PROJECT_NAME}
+		PRIVATE
+			/sdl
+			/utf-8
+			/Zi
+			/permissive-
+			/Zc:preprocessor
+			/W4
+			/WX-
+			"$<$<CONFIG:RELEASE>:/Zc:inline;/JMC-;/Ob3>"
+	)
+endif ()
