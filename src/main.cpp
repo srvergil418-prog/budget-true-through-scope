@@ -238,6 +238,8 @@ namespace RC
 	// 位置参数 (0,0,10) 沿用 TTS 的默认值，之后可在菜单里偏移。
 	static RE::NiAVObject* s_lensNode = nullptr;
 
+	static void CacheLensIndexCount(RE::NiAVObject* a_node);
+
 	static void SpawnLens()
 	{
 		if (!g_lensEnabled) return;
