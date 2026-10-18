@@ -93,7 +93,9 @@ namespace RC
 		auto* rd = RE::BSGraphics::RendererData::GetSingleton();
 		if (!rd) { Log("[VP] RendererData NULL"); return; }
 
-		const auto& vp = rd->cameraState.camViewData.viewProjMat;
+		// cameraState 在 BSGraphics::State 上，不在 RendererData
+		const auto& gs = RE::BSGraphics::State::GetSingleton();
+		const auto& vp = gs.cameraState.camViewData.viewProjMat;
 		float m[4][4];
 		for (int i = 0; i < 4; i++) {
 			_mm_storeu_ps(m[i], vp[i]);
