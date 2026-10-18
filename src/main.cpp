@@ -411,6 +411,92 @@ namespace RC
 		Log("[CAP] RS=%p BS=%p DS=%p stencilRef=%u blend=(%.2f,%.2f,%.2f,%.2f)",
 			(void*)rs, (void*)bs, (void*)ds, stencilRef,
 			blendFactor[0], blendFactor[1], blendFactor[2], blendFactor[3]);
+
+		// --- 实验 A：渲染阶段分类（RTV/DSV + 各状态描述 + viewport）---
+		ID3D11RenderTargetView* rtvs[4] = {};
+		ID3D11DepthStencilView* dsv = nullptr;
+		a_ctx->OMGetRenderTargets(4, rtvs, &dsv);
+
+		int rtvCount = 0;
+		for (int i = 0; i < 4; ++i) if (rtvs[i]) rtvCount++;
+		Log("[CAP] RTV count=%d", rtvCount);
+		for (int i = 0; i < 4; ++i) {
+			if (!rtvs[i]) continue;
+			ID3D11Resource* res = nullptr;
+			rtvs[i]->GetResource(&res);
+			if (res) {
+				D3D11_RESOURCE_DIMENSION dim = D3D11_RESOURCE_DIMENSION_UNKNOWN;
+				res->GetType(&dim);
+				if (dim == D3D11_RESOURCE_DIMENSION_TEXTURE2D) {
+					D3D11_TEXTURE2D_DESC td{};
+					((ID3D11Texture2D*)res)->GetDesc(&td);
+					Log("[CAP] RTV[%d] %ux%u fmt=%d bind=0x%X mips=%u",
+						i, td.Width, td.Height, (int)td.Format, td.BindFlags, td.MipLevels);
+				} else {
+					Log("[CAP] RTV[%d] non-2D (dim=%d)", i, (int)dim);
+				}
+				res->Release();
+			}
+			rtvs[i]->Release();
+		}
+		if (dsv) {
+			ID3D11Resource* res = nullptr;
+			dsv->GetResource(&res);
+			if (res) {
+				D3D11_RESOURCE_DIMENSION dim = D3D11_RESOURCE_DIMENSION_UNKNOWN;
+				res->GetType(&dim);
+				if (dim == D3D11_RESOURCE_DIMENSION_TEXTURE2D) {
+					D3D11_TEXTURE2D_DESC td{};
+					((ID3D11Texture2D*)res)->GetDesc(&td);
+					Log("[CAP] DSV %ux%u fmt=%d bind=0x%X", td.Width, td.Height, (int)td.Format, td.BindFlags);
+				}
+				res->Release();
+			}
+			dsv->Release();
+		} else {
+			Log("[CAP] DSV null");
+		}
+
+		// BlendState 描述
+		if (bs) {
+			D3D11_BLEND_DESC bd{};
+			bs->GetDesc(&bd);
+			Log("[CAP] Blend: enable=%d src=%d dst=%d op=%d alphaSrc=%d alphaDst=%d alphaOp=%d writeMask=0x%X",
+				bd.RenderTarget[0].BlendEnable,
+				(int)bd.RenderTarget[0].SrcBlend, (int)bd.RenderTarget[0].DestBlend,
+				(int)bd.RenderTarget[0].BlendOp,
+				(int)bd.RenderTarget[0].SrcBlendAlpha, (int)bd.RenderTarget[0].DestBlendAlpha,
+				(int)bd.RenderTarget[0].BlendOpAlpha,
+				bd.RenderTarget[0].RenderTargetWriteMask);
+		}
+
+		// DepthStencilState 描述
+		if (ds) {
+			D3D11_DEPTH_STENCIL_DESC dsd{};
+			ds->GetDesc(&dsd);
+			Log("[CAP] Depth: enable=%d writeMask=%d func=%d | stencilEnable=%d readMask=0x%X writeMask=0x%X",
+				dsd.DepthEnable, (int)dsd.DepthWriteMask, (int)dsd.DepthFunc,
+				dsd.StencilEnable, dsd.StencilReadMask, dsd.StencilWriteMask);
+		}
+
+		// RasterizerState 描述
+		if (rs) {
+			D3D11_RASTERIZER_DESC rd{};
+			rs->GetDesc(&rd);
+			Log("[CAP] Rast: fill=%d cull=%d frontCCW=%d depthClip=%d scissor=%d",
+				(int)rd.FillMode, (int)rd.CullMode, rd.FrontCounterClockwise,
+				rd.DepthClipEnable, rd.ScissorEnable);
+		}
+
+		// Viewport
+		D3D11_VIEWPORT vp{};
+		UINT vpCount = 1;
+		a_ctx->RSGetViewports(&vpCount, &vp);
+		if (vpCount > 0) {
+			Log("[CAP] Viewport: %.1f,%.1f %.1fx%.1f minZ=%.3f maxZ=%.3f",
+				vp.TopLeftX, vp.TopLeftY, vp.Width, vp.Height, vp.MinDepth, vp.MaxDepth);
+		}
+
 		if (rs) rs->Release();
 		if (bs) bs->Release();
 		if (ds) ds->Release();
@@ -696,6 +782,37 @@ float4 main(float4 pos : SV_POSITION) : SV_Target {
 
 	static void STDMETHODCALLTYPE hkDrawIndexed(ID3D11DeviceContext* a_ctx, UINT a_count, UINT a_start, INT a_base)
 	{
+		// 实验 A：记录后续所有 144 候选 draw 的轻量元数据（最多 8 次，不拷贝缓冲），
+		// 用来判断同一网格是否在不同 pass（尤其深度/阴影与颜色）中重复出现。
+		static int s_metaCount = 0;
+		if (a_count == 144 && g_ads.load() && s_metaCount < 8) {
+			s_metaCount++;
+			ID3D11PixelShader* psM = nullptr;
+			ID3D11VertexShader* vsM = nullptr;
+			ID3D11RenderTargetView* rtvM = nullptr;
+			ID3D11DepthStencilView* dsvM = nullptr;
+			a_ctx->PSGetShader(&psM, nullptr, nullptr);
+			a_ctx->VSGetShader(&vsM, nullptr, nullptr);
+			a_ctx->OMGetRenderTargets(1, &rtvM, &dsvM);
+			ID3D11Buffer* vbM = nullptr;
+			UINT strideM = 0, voffM = 0;
+			a_ctx->IAGetVertexBuffers(0, 1, &vbM, &strideM, &voffM);
+			ID3D11Buffer* ibM = nullptr;
+			DXGI_FORMAT fmtM = DXGI_FORMAT_UNKNOWN;
+			UINT ioffM = 0;
+			a_ctx->IAGetIndexBuffer(&ibM, &fmtM, &ioffM);
+
+			Log("[META] #%d ps=%p vs=%p rtv=%p dsv=%p voff=%u ioff=%u stride=%u",
+				s_metaCount, (void*)psM, (void*)vsM, (void*)rtvM, (void*)dsvM, voffM, ioffM, strideM);
+
+			if (psM) psM->Release();
+			if (vsM) vsM->Release();
+			if (rtvM) rtvM->Release();
+			if (dsvM) dsvM->Release();
+			if (vbM) vbM->Release();
+			if (ibM) ibM->Release();
+		}
+
 		// 一次性只读诊断：捕获第一个被判定为 ScopeFade 候选的 draw（144 索引）。
 		// 锁存后不再触发，避免逐帧 Copy/Map 造成卡顿。
 		if (!s_fadeCaptured && a_count == 144 && g_ads.load()) {
