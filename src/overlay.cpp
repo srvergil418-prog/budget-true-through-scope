@@ -382,8 +382,9 @@ float4 main(float4 pos : SV_POSITION, float2 uv : TEXCOORD0) : SV_Target {
 			cb.boxW = reticleSide;
 			cb.boxH = reticleSide;
 			cb.alphaMul = 1.0f;
-			// 遮罩：自动模式用镜片方向算出的值，否则用菜单里的固定值
-			const float maskR = g_maskAuto ? g_maskR
+			// 遮罩：自动模式用镜片方向算出的值（可再乘一个缩放），
+			// 否则用菜单里的固定值
+			const float maskR = g_maskAuto ? (g_maskR * g_maskRadiusScale)
 			                               : ((g_maskRadius > 5.0f) ? g_maskRadius : ((float)td.Height * 0.15f));
 			cb.maskR = maskR;
 			cb.maskCX = (float)td.Width * 0.5f + (g_maskAuto ? g_maskCX : g_maskOffX);
