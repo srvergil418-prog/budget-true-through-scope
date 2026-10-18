@@ -124,7 +124,10 @@ SamplerState gSamp : register(s0);
 float4 main(float4 pos : SV_POSITION, float2 uv : TEXCOORD0) : SV_Target {
     if (maskR > 0.5) {
         float2 d = pos.xy - float2(maskCX, maskCY);
-        if (dot(d, d) > maskR * maskR) discard;
+        float dist = sqrt(dot(d, d));
+        if (dist > maskR) discard;
+        // 调试用：遮罩边界画一圈红色，方便肉眼确认圆的位置和大小
+        if (dist > maskR - 4.0) return float4(1.0, 0.0, 0.0, 1.0);
     }
     float4 c = gTex.Sample(gSamp, uv);
     return float4(c.rgb, c.a * alphaMul);
