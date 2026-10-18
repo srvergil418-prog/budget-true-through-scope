@@ -514,8 +514,14 @@ float4 main(float4 pos : SV_POSITION) : SV_Target {
 
 			s_origDrawIndexed(a_ctx, a_count, a_start, a_base);
 
-			a_ctx->PSSetShader(oldPS, nullptr, 0);
-			if (oldPS) oldPS->Release();
+			// 恢复：必须把原来的 PS 还回去，否则绿色会泄漏到天空等后续绘制
+			if (oldPS) {
+				a_ctx->PSSetShader(oldPS, nullptr, 0);
+				oldPS->Release();
+			} else {
+				static int s_nullLog = 0;
+				if (s_nullLog < 3) { s_nullLog++; Log("[LENSDRAW] oldPS was NULL"); }
+			}
 			if (oldDS) { a_ctx->OMSetDepthStencilState(oldDS, oldStencilRef); oldDS->Release(); }
 		}
 	}
