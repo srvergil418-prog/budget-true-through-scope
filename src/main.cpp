@@ -240,6 +240,7 @@ namespace RC
 
 	static void SpawnLens()
 	{
+		if (!g_lensEnabled) return;
 		auto* pc = RE::PlayerCharacter::GetSingleton();
 		if (!pc || !pc->Get3D()) return;
 		auto* weapon = pc->Get3D()->GetObjectByName("Weapon");
@@ -266,7 +267,7 @@ namespace RC
 		node->IncRefCount();
 		node->name = "RCLens";
 		weaponNode->AttachChild(node, false);
-		node->local.translate = RE::NiPoint3(0.0f, 0.0f, 10.0f);
+		node->local.translate = RE::NiPoint3(g_lensOffX, g_lensOffY, g_lensOffZ);
 		node->local.rotate.MakeIdentity();
 
 		RE::NiUpdateData ud{};
