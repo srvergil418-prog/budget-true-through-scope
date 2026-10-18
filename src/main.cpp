@@ -528,24 +528,26 @@ namespace RC
 				D3D11_MAPPED_SUBRESOURCE ms{};
 				if (SUCCEEDED(a_ctx->Map(staging, 0, D3D11_MAP_READ, 0, &ms))) {
 					const auto* idx = (const uint8_t*)ms.pData;
-					// 完整读取全部索引（上一版只读了 96 个就下结论，是错的）
+					// 完整读取全部索引（上一版只读了 96 个 / 日志被 400 字节缓冲截断）
 					UINT mn = 0xFFFF, mx = 0;
 					bool seen[65536] = {};
 					UINT uniq = 0;
-					char line[400];
-					int written = 0;
-					for (UINT i = 0; i < a_count; ++i) {
-						UINT v = (ibBytesPerIndex == 4)
-							? *((const uint32_t*)(idx + i * 4))
-							: *((const uint16_t*)(idx + i * 2));
-						if (v < mn) mn = v;
-						if (v > mx) mx = v;
-						if (!seen[v]) { seen[v] = true; ++uniq; }
-						if (written < 380) {
-							written += sprintf_s(line + written, sizeof(line) - written, "%u ", v);
+					// 分多行输出，每行 32 个，避免缓冲区截断
+					const UINT perLine = 32;
+					for (UINT base = 0; base < a_count; base += perLine) {
+						char line[320] = {};
+						int w = 0;
+						for (UINT i = base; i < base + perLine && i < a_count; ++i) {
+							UINT v = (ibBytesPerIndex == 4)
+								? *((const uint32_t*)(idx + i * 4))
+								: *((const uint16_t*)(idx + i * 2));
+							if (v < mn) mn = v;
+							if (v > mx) mx = v;
+							if (!seen[v]) { seen[v] = true; ++uniq; }
+							w += sprintf_s(line + w, sizeof(line) - w, "%u ", v);
 						}
+						Log("[CAP] IB[%u..%u] %s", base, (base + perLine > a_count ? a_count : base + perLine), line);
 					}
-					Log("[CAP] IB ALL %u indices: %s", a_count, line);
 					Log("[CAP] IB stats: min=%u max=%u unique=%u", mn, mx, uniq);
 					a_ctx->Unmap(staging, 0);
 				} else {
@@ -904,6 +906,37 @@ float4 main(float4 pos : SV_POSITION) : SV_Target {
 		Log("[CAP] IL desc for %p: NOT FOUND in records (created before hook)", a_ptr);
 	}
 
+	// ======================= 场景树侧取证（ScopeFade） =======================
+	// 记录 ScopeFade 这个 BSTriShape 的实际字段，供后续与渲染层 Draw 建立映射。
+	// 只读；指针仅用于本次运行诊断，不写死进任何识别逻辑。
+	static void DumpScopeFadeObject(RE::PlayerCharacter* a_pc)
+	{
+		if (!a_pc) return;
+		auto* fade = FindNode(a_pc, "ScopeFade");
+		if (!fade) { Log("[OBJ] ScopeFade NOT FOUND"); return; }
+
+		auto* tri = fade->IsTriShape();
+		if (!tri) { Log("[OBJ] ScopeFade is not a TriShape"); return; }
+
+		Log("[OBJ] ScopeFade ptr=%p name=%s", (void*)tri, tri->name.c_str());
+		Log("[OBJ] tri=%u vert=%u", tri->numTriangles, (unsigned)tri->numVertices);
+
+		const auto& w = tri->world;
+		Log("[OBJ] world: pos=(%.3f,%.3f,%.3f) scale=%.3f", w.translate.x, w.translate.y, w.translate.z, w.scale);
+		Log("[OBJ] worldBound: center=(%.3f,%.3f,%.3f) r=%.3f",
+			tri->worldBound.center.x, tri->worldBound.center.y, tri->worldBound.center.z, tri->worldBound.fRadius);
+		Log("[OBJ] local: pos=(%.3f,%.3f,%.3f) scale=%.3f",
+			tri->local.translate.x, tri->local.translate.y, tri->local.translate.z, tri->local.scale);
+
+		auto* p = tri->parent;
+		int d = 0;
+		while (p && d < 8) {
+			Log("[OBJ] parent[%d] %s (%p)", d, p->name.c_str(), (void*)p);
+			p = p->parent;
+			++d;
+		}
+	}
+
 	// ======================= 主线程每帧 =======================
 	using PCUpdateMainThread_t = void(__fastcall*)(RE::PlayerCharacter*);
 	static PCUpdateMainThread_t s_origPCUpdate = nullptr;
@@ -965,6 +998,9 @@ float4 main(float4 pos : SV_POSITION) : SV_Target {
 					s_lensIndexCount = 0;
 					CacheLenseIndexCount(a_pc);
 					SpawnLens();
+
+					// 场景树侧：记录 ScopeFade 的实际字段（供 Draw 映射用）
+					DumpScopeFadeObject(a_pc);
 
 					// 列出 ScopeAiming 下所有几何体：ADS 时真正渲染的是它们，
 					// ScopeNormal 下的 Lense 已被 STS 剔除。
