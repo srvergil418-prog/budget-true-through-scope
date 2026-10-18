@@ -348,11 +348,9 @@ namespace RC
 		if (!root) return;
 
 		RE::NiAVObject* target = nullptr;
-		if (auto* aiming = root->GetObjectByName("ScopeAiming")) {
-			if (auto* fade = aiming->GetObjectByName("ScopeFade")) {
-				target = fade;
-			}
-		}
+		// 节点真名带 ":0" 后缀（ScopeFade:0），GetObjectByName 是精确匹配所以
+		// 找不到；用 FindNode 的子串匹配。
+		target = FindNode(a_pc, "ScopeFade");
 		if (!target) {
 			target = FindNode(a_pc, "Lense");
 		}
