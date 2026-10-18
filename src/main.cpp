@@ -323,6 +323,21 @@ namespace RC
 		return s_origPresent(a_sc, a_sync, a_flags);
 	}
 
+	// ======================= ClipCursor =======================
+	// 游戏会把鼠标限制在一个小矩形里（瞄准时尤其明显）。菜单打开时必须
+	// 放行 ClipCursor，否则鼠标只能在那块小区域里动 —— 这就是"F7 后鼠标
+	// 只能在中间一小块动"的原因。
+	using ClipCursor_t = BOOL(WINAPI*)(const RECT*);
+	static ClipCursor_t s_origClipCursor = nullptr;
+
+	static BOOL WINAPI hkClipCursor(const RECT* a_rect)
+	{
+		if (ImGui_menuOpen()) {
+			return s_origClipCursor(nullptr);
+		}
+		return s_origClipCursor(a_rect);
+	}
+
 	// ======================= 安装 =======================
 	static void InstallHooks()
 	{
@@ -337,6 +352,14 @@ namespace RC
 			} else {
 				Log("[INIT] PCUpdateMainThread hook FAILED");
 			}
+		}
+
+		// 菜单打开时放行鼠标裁剪
+		if (MH_CreateHook((LPVOID)&ClipCursor, (LPVOID)&hkClipCursor, (LPVOID*)&s_origClipCursor) == MH_OK) {
+			MH_EnableHook((LPVOID)&ClipCursor);
+			Log("[INIT] ClipCursor hooked");
+		} else {
+			Log("[INIT] ClipCursor hook FAILED");
 		}
 
 		auto* rd = RE::BSGraphics::RendererData::GetSingleton();
