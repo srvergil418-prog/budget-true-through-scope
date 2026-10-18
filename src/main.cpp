@@ -85,6 +85,42 @@ namespace RC
 		return found;
 	}
 
+	// 把候选节点的世界坐标用游戏的 viewProjMat 投影，打印 NDC。
+	// 这是 stencil 方案的前置实验：如果 NDC 落在中心附近，说明这个矩阵
+	// 就是渲染这棵武器树的那一个，之后就能直接用它把目镜画进 stencil。
+	static void ProbeViewProj(RE::PlayerCharacter* a_pc)
+	{
+		auto* rd = RE::BSGraphics::RendererData::GetSingleton();
+		if (!rd) { Log("[VP] RendererData NULL"); return; }
+
+		const auto& vp = rd->cameraState.camViewData.viewProjMat;
+		float m[4][4];
+		for (int i = 0; i < 4; i++) {
+			_mm_storeu_ps(m[i], vp[i]);
+		}
+		Log("[VP] r0=(%.3f,%.3f,%.3f,%.3f)", m[0][0], m[0][1], m[0][2], m[0][3]);
+		Log("[VP] r1=(%.3f,%.3f,%.3f,%.3f)", m[1][0], m[1][1], m[1][2], m[1][3]);
+		Log("[VP] r2=(%.3f,%.3f,%.3f,%.3f)", m[2][0], m[2][1], m[2][2], m[2][3]);
+		Log("[VP] r3=(%.3f,%.3f,%.3f,%.3f)", m[3][0], m[3][1], m[3][2], m[3][3]);
+
+		for (const char* nm : { "Reticle", "Lense", "Glass" }) {
+			auto* obj = FindNode(a_pc, nm);
+			if (!obj) { Log("[VP] %s: not found", nm); continue; }
+			const auto& w = obj->world.translate;
+			const float x = w.x, y = w.y, z = w.z, ww = 1.0f;
+			const float px = x * m[0][0] + y * m[0][1] + z * m[0][2] + ww * m[0][3];
+			const float py = x * m[1][0] + y * m[1][1] + z * m[1][2] + ww * m[1][3];
+			const float pz = x * m[2][0] + y * m[2][1] + z * m[2][2] + ww * m[2][3];
+			const float pw = x * m[3][0] + y * m[3][1] + z * m[3][2] + ww * m[3][3];
+			if (fabsf(pw) > 1e-6f) {
+				Log("[VP] %-8s world=(%.2f,%.2f,%.2f) ndc=(%.3f,%.3f) w=%.3f depth=%.3f",
+					nm, w.x, w.y, w.z, px / pw, py / pw, pw, pz / pw);
+			} else {
+				Log("[VP] %-8s world=(%.2f,%.2f,%.2f) w=0 (投影在无穷远)", nm, w.x, w.y, w.z);
+			}
+		}
+	}
+
 	// 打印子树的可见性与包围球（诊断 ADS 时哪些几何体是活的）
 	static void DumpSubtree(RE::NiAVObject* a_obj, int a_depth)
 	{
@@ -205,6 +241,7 @@ namespace RC
 					static int s_dumpCount = 0;
 					if (s_dumpCount < 3) {
 						s_dumpCount++;
+						ProbeViewProj(a_pc);
 						if (len) {
 							Log("[LENSE] %s cull=%d world=(%.2f,%.2f,%.2f) bound=(%.2f,%.2f,%.2f) r=%.2f",
 								len->name.c_str(), len->GetAppCulled() ? 1 : 0,
