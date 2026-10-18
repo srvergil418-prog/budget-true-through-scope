@@ -42,11 +42,31 @@ if (NOT TARGET CommonLibF4)
 	endif ()
 endif ()
 
+# ---- ImGui（源码编译，只带 dx11 + win32 后端）----
+set(IMGUI_DIR "${CMAKE_CURRENT_SOURCE_DIR}/imgui")
+if (EXISTS ${IMGUI_DIR})
+	add_library(imgui STATIC
+		${IMGUI_DIR}/imgui.cpp
+		${IMGUI_DIR}/imgui_draw.cpp
+		${IMGUI_DIR}/imgui_tables.cpp
+		${IMGUI_DIR}/imgui_widgets.cpp
+		${IMGUI_DIR}/backends/imgui_impl_win32.cpp
+		${IMGUI_DIR}/backends/imgui_impl_dx11.cpp
+	)
+	target_include_directories(imgui PUBLIC ${IMGUI_DIR} ${IMGUI_DIR}/backends)
+	target_compile_definitions(imgui PUBLIC IMGUI_DISABLE_OBSOLETE_FUNCTIONS)
+	set(RC_HAS_IMGUI ON)
+else ()
+	message(WARNING "imgui not found at ${IMGUI_DIR} -- building without the tuning menu")
+	set(RC_HAS_IMGUI OFF)
+endif ()
+
 add_library(
 	${PROJECT_NAME}
 	SHARED
 	src/main.cpp
 	src/overlay.cpp
+	src/imgui_ui.cpp
 )
 
 target_include_directories(
@@ -63,6 +83,11 @@ target_link_libraries(
 		minhook::minhook
 		CommonLibF4::CommonLibF4
 )
+
+if (RC_HAS_IMGUI)
+	target_link_libraries(${PROJECT_NAME} PRIVATE imgui)
+	target_compile_definitions(${PROJECT_NAME} PRIVATE RC_HAS_IMGUI=1)
+endif ()
 
 target_precompile_headers(
 	${PROJECT_NAME}
