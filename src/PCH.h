@@ -17,5 +17,5 @@
 #include <dxgi.h>
 #include <wrl/client.h>
 
-#include "F4SE/F4SE.hpp"
-#include "RE/Fallout.hpp"
+#include "F4SE/F4SE.h"
+#include "RE/Fallout.h"
