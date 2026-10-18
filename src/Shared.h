@@ -14,6 +14,9 @@ namespace RC
 	// 准星贴图（512x512 BC3）
 	constexpr const char* kReticleDds = "Data\\Textures\\TTS\\Reticle\\CSResRetGerman1.dds";
 
+	// 镜片包围球半径的校准系数（仅用于日志诊断）
+	constexpr float kMaskRadiusScale = 1.0f;
+
 	// ---- 日志 ----
 	void Log(const char* fmt, ...);
 	void BoxLog(const char* fmt, ...);
