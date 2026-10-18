@@ -251,13 +251,32 @@ namespace RC
 		if (!weaponNode) return;
 
 		// 目标位置：默认对齐镜片（Lense）的位置，换枪/换镜自动跟随。
-		// 菜单里的 lens X/Y/Z 作为额外微调叠加在上面。
+		// 注意：Lense 的 world 是【世界坐标】，而 node->local 是【相对 Weapon 的
+		// 局部坐标】，必须用 Weapon 的世界变换做逆变换（转置旋转 + 平移 + 缩放），
+		// 直接赋值会把透镜扔到错误的地方。
 		RE::NiPoint3 target{ g_lensOffX, g_lensOffY, g_lensOffZ };
 		if (auto* lenseAlign = FindNode(pc, "Lense")) {
 			const RE::NiPoint3 lw = lenseAlign->world.translate;
-			target.x = lw.x + g_lensOffX;
-			target.y = lw.y + g_lensOffY;
-			target.z = lw.z + g_lensOffZ;
+			const auto& pW = weaponNode->world;
+			const float pScale = (std::fabs(pW.scale) > 1e-6f) ? pW.scale : 1.0f;
+			const RE::NiPoint3 d = lw - pW.translate;
+
+			RE::NiPoint3 local;
+			local.x = pW.rotate.entry[0].pt[0] * d.x + pW.rotate.entry[1].pt[0] * d.y + pW.rotate.entry[2].pt[0] * d.z;
+			local.y = pW.rotate.entry[0].pt[1] * d.x + pW.rotate.entry[1].pt[1] * d.y + pW.rotate.entry[2].pt[1] * d.z;
+			local.z = pW.rotate.entry[0].pt[2] * d.x + pW.rotate.entry[1].pt[2] * d.y + pW.rotate.entry[2].pt[2] * d.z;
+			local = local / pScale;
+
+			target.x = local.x + g_lensOffX;
+			target.y = local.y + g_lensOffY;
+			target.z = local.z + g_lensOffZ;
+
+			static int s_alignLog = 0;
+			if (s_alignLog < 3) {
+				s_alignLog++;
+				Log("[LENS] align: lenseWorld=(%.2f,%.2f,%.2f) weaponWorld=(%.2f,%.2f,%.2f) -> local=(%.2f,%.2f,%.2f)",
+					lw.x, lw.y, lw.z, pW.translate.x, pW.translate.y, pW.translate.z, local.x, local.y, local.z);
+			}
 		}
 
 		// 已经挂着且还在武器树下：只更新位置（菜单改完立刻生效），不重新加载
