@@ -47,6 +47,8 @@ target_include_directories(
 	${PROJECT_NAME}
 	PRIVATE
 		${CMAKE_CURRENT_SOURCE_DIR}/src
+		${CMAKE_CURRENT_SOURCE_DIR}/CommonLibF4/CommonLibF4/include
+		${CMAKE_CURRENT_SOURCE_DIR}/../CommonLibF4/CommonLibF4/include
 )
 
 target_link_libraries(
