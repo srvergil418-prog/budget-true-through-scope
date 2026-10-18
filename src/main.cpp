@@ -359,6 +359,8 @@ namespace RC
 	// 不逐帧、不改变任何渲染状态、释放所有 COM 引用。
 	static bool s_fadeCaptured = false;
 
+	static void DumpIlFor(void* a_ptr);
+
 	static void CaptureScopeFade(ID3D11DeviceContext* a_ctx, UINT a_count, UINT a_start, INT a_base)
 	{
 		ID3D11Device* dev = nullptr;
