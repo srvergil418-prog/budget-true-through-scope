@@ -175,26 +175,40 @@ namespace RC
 	}
 
 	// ======================= 遮罩投影 =======================
-	// 第一人称武器树在"眼睛空间"渲染：原点≈眼睛，+Z 为前向
-	// （实测 Reticle 的 world.z 恒 ~119，x/y 随武器晃动摆动）
+	// B 方案：用「准星方向」当屏幕中心，算镜片相对它的屏幕偏移。
+	// 准星（Reticle:0）本来就对准弹道，所以它的方向 = 屏幕中心方向；
+	// 镜片（Lense:0）和它在同一坐标系，两者夹角就是遮罩该有的偏移。
+	// 偏移和半径都经过 FOV 换算 -> FOV 变化、换枪、换镜都自动适配。
 	static void UpdateMask(RE::PlayerCharacter* a_pc)
 	{
 		g_maskR = 0.0f;
 
 		RE::NiAVObject* lense = FindNode(a_pc, "Lense");
-		if (!lense) {
+		RE::NiAVObject* ret = FindNode(a_pc, "Reticle");
+		if (!lense || !ret) {
 			static bool s_warned = false;
-			if (!s_warned) { s_warned = true; Log("[LENSE] not found"); }
+			if (!s_warned) { s_warned = true; Log("[MASK] lense/reticle missing"); }
 			return;
 		}
 
-		const RE::NiPoint3 p = lense->world.translate;
-		const float z = p.z;
-		if (!(z > 1.0f)) return;
+		const RE::NiPoint3 r = ret->world.translate;
+		const RE::NiPoint3 l = lense->world.translate;
+		const float rLen = std::sqrt(r.x * r.x + r.y * r.y + r.z * r.z);
+		const float lLen = std::sqrt(l.x * l.x + l.y * l.y + l.z * l.z);
+		if (!(rLen > 1.0f) || !(lLen > 1.0f)) return;
+
+		const RE::NiPoint3 vR{ r.x / rLen, r.y / rLen, r.z / rLen };
+		const RE::NiPoint3 vL{ l.x / lLen, l.y / lLen, l.z / lLen };
+
+		float dot = vR.x * vL.x + vR.y * vL.y + vR.z * vL.z;
+		if (dot > 0.99999f) dot = 0.99999f;
+		if (dot < -0.99999f) dot = -0.99999f;
+
+		// 垂直于准星方向的残余分量 = 屏幕平面上的偏移方向
+		const RE::NiPoint3 perp{ vL.x - vR.x * dot, vL.y - vR.y * dot, vL.z - vR.z * dot };
 
 		auto* cam = RE::PlayerCamera::GetSingleton();
 		if (!cam) return;
-
 		float fovDeg = cam->firstPersonFOV;
 		if (!(fovDeg > 5.0f) || fovDeg > 175.0f) fovDeg = 70.0f;
 		const float tanHalfV = std::tan(fovDeg * 3.14159265f / 180.0f * 0.5f);
@@ -204,21 +218,16 @@ namespace RC
 		const float W = static_cast<float>(gs.backBufferWidth);
 		const float H = static_cast<float>(gs.backBufferHeight);
 		if (W < 1.0f || H < 1.0f) return;
-		const float tanHalfH = tanHalfV * (W / H);
 
-		const float ndcX = (p.x / z) / tanHalfH;
-		const float ndcY = (p.y / z) / tanHalfV;
-		g_maskCX = (ndcX * 0.5f + 0.5f) * W;
-		g_maskCY = (0.5f - ndcY * 0.5f) * H;
+		// perp 的横向分量 / 深度 -> NDC 偏移（x=右, y=上, z=前）
+		const float ndcX = (perp.x / dot) / (tanHalfV * (W / H));
+		const float ndcY = (perp.y / dot) / tanHalfV;
+		g_maskCX = (ndcX * 0.5f) * W;
+		g_maskCY = (-ndcY * 0.5f) * H;
 
-		// 半径：用包围球；为 0 时退回 0（不画），避免出现没有遮罩的大准星
-		float rWorld = lense->worldBound.fRadius * kMaskRadiusScale;
-		if (!(rWorld > 0.01f)) {
-			static bool s_warned2 = false;
-			if (!s_warned2) { s_warned2 = true; Log("[LENSE] worldBound.fRadius=%.3f (invalid)", rWorld); }
-			return;
-		}
-		float rPix = (rWorld / z) * (H * 0.5f) / tanHalfV;
+		float rWorld = lense->worldBound.fRadius;
+		if (!(rWorld > 0.01f)) return;
+		float rPix = (rWorld / lLen) * (H * 0.5f) / tanHalfV;
 		if (!(rPix > 1.0f) || rPix > H) return;
 		g_maskR = rPix;
 	}
