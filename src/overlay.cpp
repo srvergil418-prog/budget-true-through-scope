@@ -373,20 +373,17 @@ float4 main(float4 pos : SV_POSITION, float2 uv : TEXCOORD0) : SV_Target {
 			CbData cb{};
 			cb.screenW = (float)td.Width;
 			cb.screenH = (float)td.Height;
-			cb.centerX = (float)td.Width * 0.5f;
-			cb.centerY = (float)td.Height * 0.5f;
 
-			// 遮罩暂时钉在屏幕中心 + 按屏幕高度取固定半径：
-			// 镜片投影（g_maskCX/CY）目前不可靠（实测圆心在 y=993~1486 之间乱跳），
-			// 会把居中准星整块裁掉。先用这个版本确认准星能正常显示，
-			// 再回头调镜片投影。
-			const float fixedR = (float)td.Height * 0.15f;
-			cb.boxW = fixedR * 2.0f;
-			cb.boxH = fixedR * 2.0f;
+			// 全部参数来自 ImGui 菜单（F7 打开），玩家自己调到位
+			cb.centerX = (float)td.Width * 0.5f + g_reticleOffX;
+			cb.centerY = (float)td.Height * 0.5f + g_reticleOffY;
+			const float maskR = (g_maskRadius > 5.0f) ? g_maskRadius : ((float)td.Height * 0.15f);
+			cb.boxW = maskR * 2.0f * g_reticleScale;
+			cb.boxH = maskR * 2.0f * g_reticleScale;
 			cb.alphaMul = 1.0f;
-			cb.maskR = fixedR;
-			cb.maskCX = (float)td.Width * 0.5f;
-			cb.maskCY = (float)td.Height * 0.5f;
+			cb.maskR = maskR;
+			cb.maskCX = (float)td.Width * 0.5f + g_maskOffX;
+			cb.maskCY = (float)td.Height * 0.5f + g_maskOffY;
 
 			D3D11_MAPPED_SUBRESOURCE ms{};
 			if (SUCCEEDED(ctx->Map(s_state.cb, 0, D3D11_MAP_WRITE_DISCARD, 0, &ms))) {
