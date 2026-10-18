@@ -82,6 +82,7 @@ target_link_libraries(
 	PRIVATE
 		minhook::minhook
 		CommonLibF4::CommonLibF4
+		d3dcompiler
 )
 
 if (RC_HAS_IMGUI)
