@@ -52,14 +52,25 @@ namespace RC
 	}
 
 	// ======================= 节点查找 =======================
+	// 从 "Weapon" 节点开始遍历：Reticle/Lense 都挂在
+	//   Weapon -> WPN_xxx -> P-Scope -> ScopeAiming -> ScopeViewParts -> Reticle:0
+	// 从 Get3D() 根算深度会超限找不到（上一版就是这么失败的）。
+	// Weapon 找不到时退回整棵树，并把节点数写进日志便于诊断。
 	static RE::NiAVObject* FindNode(RE::PlayerCharacter* a_pc, const char* a_sub, int* a_pCount = nullptr)
 	{
 		RE::NiAVObject* found = nullptr;
 		int count = 0;
 		if (!a_pc || !a_pc->Get3D() || !a_sub) return nullptr;
 
+		RE::NiAVObject* start = nullptr;
+		if (auto* weapon = a_pc->Get3D()->GetObjectByName("Weapon")) {
+			start = weapon;
+		} else {
+			start = a_pc->Get3D();
+		}
+
 		std::function<void(RE::NiAVObject*, int)> walk = [&](RE::NiAVObject* obj, int depth) {
-			if (!obj || depth > 14 || found) return;
+			if (!obj || depth > 16 || found) return;
 			count++;
 			const char* nm = obj->name.c_str();
 			if (nm && *nm && strstr(nm, a_sub)) { found = obj; return; }
@@ -69,7 +80,7 @@ namespace RC
 				}
 			}
 		};
-		walk(a_pc->Get3D(), 0);
+		walk(start, 0);
 		if (a_pCount) *a_pCount = count;
 		return found;
 	}
@@ -158,8 +169,17 @@ namespace RC
 				}
 
 				if (!s_lastADS) {
-					Log("[ADS enter] mask=(%.0f,%.0f,r=%.1f) fov=%.1f",
-						g_maskCX, g_maskCY, g_maskR, RE::PlayerCamera::GetSingleton() ? RE::PlayerCamera::GetSingleton()->firstPersonFOV : -1.0f);
+					int cnt = 0;
+					auto* ret = FindNode(a_pc, "Reticle", &cnt);
+					auto* len = FindNode(a_pc, "Lense");
+					auto* root = a_pc->Get3D();
+					auto* wpn = root ? root->GetObjectByName("Weapon") : nullptr;
+					Log("[ADS enter] mask=(%.0f,%.0f,r=%.1f) fov=%.1f nodes=%d weapon=%d reticle=%s lense=%s",
+						g_maskCX, g_maskCY, g_maskR,
+						RE::PlayerCamera::GetSingleton() ? RE::PlayerCamera::GetSingleton()->firstPersonFOV : -1.0f,
+						cnt, wpn ? 1 : 0,
+						ret ? ret->name.c_str() : "(null)",
+						len ? len->name.c_str() : "(null)");
 				}
 			} else if (s_lastADS) {
 				g_maskR = 0.0f;
