@@ -18,6 +18,7 @@ namespace RC
 	float g_maskOffX = 0.0f;
 	float g_maskOffY = 0.0f;
 	float g_maskRadius = 324.0f;
+	float g_maskRadiusScale = 1.0f;
 	bool  g_maskAuto = false;       // B 方案：用镜片方向自动算遮罩
 
 	static bool s_init = false;
@@ -88,22 +89,43 @@ namespace RC
 		ImGui_ImplWin32_NewFrame();
 		ImGui::NewFrame();
 
+		// 一行控件：[-] [输入框] [+] [reset]
+		auto Row = [](const char* label, float* v, float def, float step, float vmin, float vmax) {
+			ImGui::PushID(label);
+			ImGui::TextUnformatted(label);
+			ImGui::SameLine(150.0f);
+			if (ImGui::Button("-")) *v = ImClamp(*v - step, vmin, vmax);
+			ImGui::SameLine();
+			ImGui::SetNextItemWidth(110.0f);
+			ImGui::InputFloat("##v", v, 0.0f, 0.0f, "%.3f");
+			*v = ImClamp(*v, vmin, vmax);
+			ImGui::SameLine();
+			if (ImGui::Button("+")) *v = ImClamp(*v + step, vmin, vmax);
+			ImGui::SameLine();
+			if (ImGui::Button("reset")) *v = def;
+			ImGui::PopID();
+		};
+
 		if (s_menu) {
-			ImGui::SetNextWindowSize(ImVec2(380, 320), ImGuiCond_FirstUseEver);
+			ImGui::SetNextWindowSize(ImVec2(430, 400), ImGuiCond_FirstUseEver);
 			ImGui::Begin("ReticleCenter (F7)", &s_menu);
+
 			ImGui::Text("Reticle (screen space)");
-			ImGui::SliderFloat("offset X", &g_reticleOffX, -1500.0f, 1500.0f, "%.0f");
-			ImGui::SliderFloat("offset Y", &g_reticleOffY, -1500.0f, 1500.0f, "%.0f");
-			ImGui::SliderFloat("size", &g_reticleSize, 100.0f, 2000.0f, "%.0f");
-			ImGui::SliderFloat("scale", &g_reticleScale, 0.2f, 3.0f, "%.2f");
+			Row("offset X", &g_reticleOffX, 0.0f, 1.0f, -2000.0f, 2000.0f);
+			Row("offset Y", &g_reticleOffY, 0.0f, 1.0f, -2000.0f, 2000.0f);
+			Row("size", &g_reticleSize, 500.0f, 10.0f, 50.0f, 3000.0f);
+			Row("scale", &g_reticleScale, 1.0f, 0.05f, 0.05f, 5.0f);
+
 			ImGui::Separator();
 			ImGui::Text("Mask circle");
 			ImGui::Checkbox("auto (lens direction)", &g_maskAuto);
-			ImGui::SliderFloat("mask X", &g_maskOffX, -1500.0f, 1500.0f, "%.0f");
-			ImGui::SliderFloat("mask Y", &g_maskOffY, -1500.0f, 1500.0f, "%.0f");
-			ImGui::SliderFloat("radius", &g_maskRadius, 20.0f, 1200.0f, "%.0f");
+			Row("mask X", &g_maskOffX, 0.0f, 1.0f, -2000.0f, 2000.0f);
+			Row("mask Y", &g_maskOffY, 0.0f, 1.0f, -2000.0f, 2000.0f);
+			Row("radius", &g_maskRadius, 324.0f, 5.0f, 10.0f, 2000.0f);
+			Row("radius x (auto)", &g_maskRadiusScale, 1.0f, 0.05f, 0.1f, 5.0f);
+
 			ImGui::Separator();
-			ImGui::Text("auto mask now: (%.0f, %.0f) r=%.0f", g_maskCX, g_maskCY, g_maskR);
+			ImGui::Text("auto raw: (%.0f, %.0f) r=%.0f", g_maskCX, g_maskCY, g_maskR);
 			ImGui::TextDisabled("red ring = mask border");
 			ImGui::End();
 		}
