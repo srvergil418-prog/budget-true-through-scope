@@ -96,21 +96,21 @@ namespace RC
 		ImGui_ImplWin32_NewFrame();
 		ImGui::NewFrame();
 
-		// 一行控件：[-] [输入框] [+] [reset]
+		// 一行控件：[滑条] [数值输入] [reset]
 		auto Row = [](const char* label, float* v, float def, float step, float vmin, float vmax) {
 			ImGui::PushID(label);
 			ImGui::TextUnformatted(label);
 			ImGui::SameLine(150.0f);
-			if (ImGui::Button("-")) *v = ClampF(*v - step, vmin, vmax);
-			ImGui::SameLine();
-			ImGui::SetNextItemWidth(110.0f);
-			ImGui::InputFloat("##v", v, 0.0f, 0.0f, "%.3f");
+			ImGui::SetNextItemWidth(170.0f);
+			ImGui::SliderFloat("##s", v, vmin, vmax, "%.2f");
 			*v = ClampF(*v, vmin, vmax);
 			ImGui::SameLine();
-			if (ImGui::Button("+")) *v = ClampF(*v + step, vmin, vmax);
+			ImGui::SetNextItemWidth(95.0f);
+			ImGui::InputFloat("##i", v, 0.0f, 0.0f, "%.3f");
 			ImGui::SameLine();
 			if (ImGui::Button("reset")) *v = def;
 			ImGui::PopID();
+			(void)step;
 		};
 
 		if (s_menu) {
