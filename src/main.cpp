@@ -516,8 +516,17 @@ float4 main(float4 pos : SV_POSITION) : SV_Target {
 
 	static void STDMETHODCALLTYPE hkDrawIndexed(ID3D11DeviceContext* a_ctx, UINT a_count, UINT a_start, INT a_base)
 	{
-		// 3D 接管（LensDraw）已停用：索引数无法唯一标识几何体，会误伤天空。
-		// 保持 hook 存在但不干预，纯粹透传。
+		// 只认我们自己挂的圆盘透镜（96 索引）。不再识别 STS 的 Lense（384），
+		// 那个数和天空球撞车会误伤整个天空。
+		if (s_diskIndexCount > 0 && a_count == s_diskIndexCount && g_ads.load()) {
+			static int s_hitLog = 0;
+			if (s_hitLog < 5) {
+				s_hitLog++;
+				Log("[DRAW] disk hit count=%u", a_count);
+			}
+			LensDraw::Draw(a_ctx, a_count, a_start, a_base);
+			return;
+		}
 		s_origDrawIndexed(a_ctx, a_count, a_start, a_base);
 	}
 
