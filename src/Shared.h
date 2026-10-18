@@ -47,6 +47,7 @@ namespace RC
 	// ---- overlay（overlay.cpp 实现）----
 	void OverlayDraw(IDXGISwapChain* a_swapChain);
 	void OverlayShutdown();
+	bool LoadDdsSrv(ID3D11Device* a_dev, const wchar_t* a_path, ID3D11ShaderResourceView** a_outSrv);
 
 	// ---- imgui 菜单（imgui_ui.cpp 实现）----
 	bool ImGui_Init(ID3D11Device* a_dev, ID3D11DeviceContext* a_ctx, HWND a_hwnd);
