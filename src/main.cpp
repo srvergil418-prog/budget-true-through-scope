@@ -528,34 +528,37 @@ float4 main(float4 pos : SV_POSITION) : SV_Target {
 
 	static void STDMETHODCALLTYPE hkDrawIndexed(ID3D11DeviceContext* a_ctx, UINT a_count, UINT a_start, INT a_base)
 	{
-		// 诊断：把前若干次 DrawIndexed 的 IndexCount 全打出来，看看镜片
-		// 到底以什么数字出现（它的 BSTriShape 是 384，但可能被拆开画）。
-		static int s_allLog = 0;
-		if (s_allLog < 80) {
-			s_allLog++;
-			Log("[DRAW] count=%u start=%u base=%d ads=%d lens=%u",
-				a_count, a_start, a_base, g_ads.load() ? 1 : 0, s_lensIndexCount);
+		const bool matchLens = (s_lensIndexCount > 0 && a_count == s_lensIndexCount);
+		const bool matchDisk = (s_diskIndexCount > 0 && a_count == s_diskIndexCount);
+
+		if ((matchLens || matchDisk) && g_ads.load()) {
+			// 光靠索引数会误伤其他几何体（天空等），再核对当前绑定的顶点缓冲
+			// 大小，和 TTS 的 IsTargetDrawCall 一样做双重校验。
+			ID3D11Buffer* vb = nullptr;
+			UINT stride = 0, off = 0;
+			a_ctx->IAGetVertexBuffers(0, 1, &vb, &stride, &off);
+			UINT vbBytes = 0;
+			if (vb) {
+				D3D11_BUFFER_DESC bd{};
+				vb->GetDesc(&bd);
+				vbBytes = bd.ByteWidth;
+				vb->Release();
+			}
+
+			static int s_hitLog = 0;
+			if (s_hitLog < 8) {
+				s_hitLog++;
+				Log("[DRAW] %s hit count=%u vbBytes=%u stride=%u",
+					matchLens ? "lens" : "disk", a_count, vbBytes, stride);
+			}
+
+			// 顶点缓冲必须非空、且元素大小合理（21~64 字节），否则不是我们的几何体
+			if (vbBytes > 0 && stride >= 12 && stride <= 128) {
+				LensDraw::Draw(a_ctx, a_count, a_start, a_base);
+				return;
+			}
 		}
 
-		if (s_lensIndexCount > 0 && a_count == s_lensIndexCount && g_ads.load()) {
-			static int s_detected = 0;
-			if (s_detected < 10) {
-				s_detected++;
-				Log("[DRAW] lens draw hit: count=%u start=%u base=%d", a_count, a_start, a_base);
-			}
-			LensDraw::Draw(a_ctx, a_count, a_start, a_base);
-			return;
-		}
-		// 我们挂上去的圆盘：同样用准星 shader 画（它才是覆盖"洞"的那块镜片）
-		if (s_diskIndexCount > 0 && a_count == s_diskIndexCount && g_ads.load()) {
-			static int s_detected2 = 0;
-			if (s_detected2 < 10) {
-				s_detected2++;
-				Log("[DRAW] disk draw hit: count=%u start=%u base=%d", a_count, a_start, a_base);
-			}
-			LensDraw::Draw(a_ctx, a_count, a_start, a_base);
-			return;
-		}
 		s_origDrawIndexed(a_ctx, a_count, a_start, a_base);
 	}
 
