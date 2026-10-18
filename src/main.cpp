@@ -299,6 +299,22 @@ namespace RC
 		CacheLensIndexCount(node);
 	}
 
+	// 强制镜片（Lense）保持可见：STS 在瞄准时会把 ScopeNormal（含 Lense）剔除，
+	// 导致我们换的 shader 根本没机会执行。这里每帧把 Lense 连同它的父链一起
+	// 取消剔除，覆盖 STS 的隐藏。
+	static void ForceLenseVisible(RE::PlayerCharacter* a_pc)
+	{
+		auto* lense = FindNode(a_pc, "Lense");
+		if (!lense) return;
+		if (lense->GetAppCulled()) lense->SetAppCulled(false);
+		auto* p = lense->parent;
+		int guard = 0;
+		while (p && guard++ < 8) {
+			if (p->GetAppCulled()) p->SetAppCulled(false);
+			p = p->parent;
+		}
+	}
+
 	// 打印一个子树下所有 BSTriShape 的三角形/顶点数和可见状态。
 	// 用途：找出 ADS 时真正在渲染的镜片（ScopeNormal 下的 Lense 会被 STS 剔除）。
 	static void DumpShapes(RE::NiAVObject* a_obj, int a_depth)
@@ -504,6 +520,9 @@ float4 main(float4 pos : SV_POSITION) : SV_Target {
 			if (ads) {
 				// 每帧算镜片投影（诊断用）
 				UpdateMask(a_pc);
+
+				// 覆盖 STS 对 ScopeNormal/Lense 的剔除，让镜片继续渲染
+				ForceLenseVisible(a_pc);
 
 				// 透镜只在开镜时可见
 				if (s_lensNode && s_lensNode->GetAppCulled()) {
