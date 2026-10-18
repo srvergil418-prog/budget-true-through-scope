@@ -85,6 +85,25 @@ namespace RC
 		return found;
 	}
 
+	// 打印子树的可见性与包围球（诊断 ADS 时哪些几何体是活的）
+	static void DumpSubtree(RE::NiAVObject* a_obj, int a_depth)
+	{
+		static int s_total = 0;
+		if (a_depth == 0) s_total = 0;
+		if (!a_obj || a_depth > 4 || s_total > 60) return;
+		s_total++;
+		Log("[TREE]%d %-26s cull=%d world=(%.1f,%.1f,%.1f) bound=(%.1f,%.1f,%.1f) r=%.2f scale=%.2f",
+			a_depth, a_obj->name.c_str(), a_obj->GetAppCulled() ? 1 : 0,
+			a_obj->world.translate.x, a_obj->world.translate.y, a_obj->world.translate.z,
+			a_obj->worldBound.center.x, a_obj->worldBound.center.y, a_obj->worldBound.center.z,
+			a_obj->worldBound.fRadius, a_obj->world.scale);
+		if (auto* node = a_obj->IsNode()) {
+			for (auto& child : node->children) {
+				if (child) DumpSubtree(child.get(), a_depth + 1);
+			}
+		}
+	}
+
 	// ======================= 遮罩投影 =======================
 	// 第一人称武器树在"眼睛空间"渲染：原点≈眼睛，+Z 为前向
 	// （实测 Reticle 的 world.z 恒 ~119，x/y 随武器晃动摆动）
@@ -180,6 +199,27 @@ namespace RC
 						cnt, wpn ? 1 : 0,
 						ret ? ret->name.c_str() : "(null)",
 						len ? len->name.c_str() : "(null)");
+
+					// 前几次开镜时，把 ADS 状态下的节点可见性和包围球全打出来：
+					// 需要判断 ScopeNormal 是否被隐藏、ScopeAiming 下哪个几何体是活的"洞"
+					static int s_dumpCount = 0;
+					if (s_dumpCount < 3) {
+						s_dumpCount++;
+						if (len) {
+							Log("[LENSE] %s cull=%d world=(%.2f,%.2f,%.2f) bound=(%.2f,%.2f,%.2f) r=%.2f",
+								len->name.c_str(), len->GetAppCulled() ? 1 : 0,
+								len->world.translate.x, len->world.translate.y, len->world.translate.z,
+								len->worldBound.center.x, len->worldBound.center.y, len->worldBound.center.z,
+								len->worldBound.fRadius);
+						}
+						if (root) {
+							if (auto* aiming = root->GetObjectByName("ScopeAiming")) {
+								DumpSubtree(aiming, 0);
+							} else {
+								Log("[TREE] ScopeAiming not found by exact name");
+							}
+						}
+					}
 				}
 			} else if (s_lastADS) {
 				g_maskR = 0.0f;
