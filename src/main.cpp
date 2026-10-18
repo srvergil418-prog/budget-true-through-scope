@@ -516,16 +516,24 @@ float4 main(float4 pos : SV_POSITION) : SV_Target {
 
 	static void STDMETHODCALLTYPE hkDrawIndexed(ID3D11DeviceContext* a_ctx, UINT a_count, UINT a_start, INT a_base)
 	{
-		// 只认我们自己挂的圆盘透镜（96 索引）。不再识别 STS 的 Lense（384），
-		// 那个数和天空球撞车会误伤整个天空。
+		// 照 TTS 的 IsTargetDrawCall：用「索引数 + 顶点 stride」双重匹配。
+		// 光比索引数会误伤（96 有两个几何体、384 和天空撞车），
+		// stride 才是我们圆盘特有的指纹（TTS 的 TARGET_STRIDE = 28）。
 		if (s_diskIndexCount > 0 && a_count == s_diskIndexCount && g_ads.load()) {
-			static int s_hitLog = 0;
-			if (s_hitLog < 5) {
-				s_hitLog++;
-				Log("[DRAW] disk hit count=%u", a_count);
+			ID3D11Buffer* vb = nullptr;
+			UINT stride = 0, off = 0;
+			a_ctx->IAGetVertexBuffers(0, 1, &vb, &stride, &off);
+			if (vb) vb->Release();
+
+			if (stride == 28) {
+				static int s_hitLog = 0;
+				if (s_hitLog < 5) {
+					s_hitLog++;
+					Log("[DRAW] disk MATCH count=%u stride=%u", a_count, stride);
+				}
+				LensDraw::Draw(a_ctx, a_count, a_start, a_base);
+				return;
 			}
-			LensDraw::Draw(a_ctx, a_count, a_start, a_base);
-			return;
 		}
 		s_origDrawIndexed(a_ctx, a_count, a_start, a_base);
 	}
