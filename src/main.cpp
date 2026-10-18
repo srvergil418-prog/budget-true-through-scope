@@ -440,6 +440,15 @@ float4 main(float4 pos : SV_POSITION) : SV_Target {
 
 	static void STDMETHODCALLTYPE hkDrawIndexed(ID3D11DeviceContext* a_ctx, UINT a_count, UINT a_start, INT a_base)
 	{
+		// 诊断：把前若干次 DrawIndexed 的 IndexCount 全打出来，看看镜片
+		// 到底以什么数字出现（它的 BSTriShape 是 384，但可能被拆开画）。
+		static int s_allLog = 0;
+		if (s_allLog < 80) {
+			s_allLog++;
+			Log("[DRAW] count=%u start=%u base=%d ads=%d lens=%u",
+				a_count, a_start, a_base, g_ads.load() ? 1 : 0, s_lensIndexCount);
+		}
+
 		if (s_lensIndexCount > 0 && a_count == s_lensIndexCount && g_ads.load()) {
 			static int s_detected = 0;
 			if (s_detected < 10) {
