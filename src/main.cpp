@@ -335,20 +335,34 @@ namespace RC
 	}
 
 	// ======================= 透镜绘制识别 =======================
-	// 直接接管 STS 自带的镜片（Lense）绘制，不再挂自己的 nif：
-	// 镜片位置天然正确，换枪换镜自动跟随，不需要任何坐标对齐。
+	// 找一个适合当遮罩的"单层面片"：
+	//   Lense 是 128 三角的多层筒壁，拿它当遮罩会被自己的层挡掉；
+	//   ScopeFade:0 是 48 三角，更像单层面片，优先用它。
 	static UINT s_lensIndexCount = 0;
 
 	static void CacheLenseIndexCount(RE::PlayerCharacter* a_pc)
 	{
 		if (s_lensIndexCount > 0) return;
 		if (!a_pc) return;
-		auto* lense = FindNode(a_pc, "Lense");
-		if (!lense) return;
-		if (auto* tri = lense->IsTriShape()) {
+		auto* root = a_pc->Get3D();
+		if (!root) return;
+
+		RE::NiAVObject* target = nullptr;
+		if (auto* aiming = root->GetObjectByName("ScopeAiming")) {
+			if (auto* fade = aiming->GetObjectByName("ScopeFade")) {
+				target = fade;
+			}
+		}
+		if (!target) {
+			target = FindNode(a_pc, "Lense");
+		}
+		if (!target) return;
+
+		if (auto* tri = target->IsTriShape()) {
 			s_lensIndexCount = tri->numTriangles * 3u;
-			Log("[LENS] STS lense indexCount=%u (tri=%u vert=%u)",
-				s_lensIndexCount, tri->numTriangles, (unsigned)tri->numVertices);
+			Log("[LENS] using '%s' indexCount=%u (tri=%u vert=%u)",
+				target->name.c_str(), s_lensIndexCount,
+				tri->numTriangles, (unsigned)tri->numVertices);
 		}
 	}
 
@@ -535,8 +549,8 @@ float4 main(float4 pos : SV_POSITION) : SV_Target {
 				// 每帧算镜片投影（诊断用）
 				UpdateMask(a_pc);
 
-				// 覆盖 STS 对 ScopeNormal/Lense 的剔除，让镜片继续渲染
-				ForceLenseVisible(a_pc);
+				// 注意：不再强制 Lense 可见（那会把整个 ScopeNormal 镜筒放出来）。
+				// ScopeFade 本来就在 ScopeAiming 下、开镜可见，不需要干预。
 
 				// 透镜只在开镜时可见
 				if (s_lensNode && s_lensNode->GetAppCulled()) {
