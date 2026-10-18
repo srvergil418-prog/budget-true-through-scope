@@ -381,6 +381,7 @@ namespace RC
 		static ID3D11Buffer* s_cb = nullptr;
 		static ID3D11ShaderResourceView* s_srv = nullptr;
 		static ID3D11SamplerState* s_samp = nullptr;
+		static ID3D11DepthStencilState* s_ds = nullptr;
 
 		struct Cb
 		{
@@ -434,6 +435,15 @@ float4 main(float4 pos : SV_POSITION) : SV_Target {
 			sd.MaxLOD = D3D11_FLOAT32_MAX;
 			a_dev->CreateSamplerState(&sd, &s_samp);
 
+			// Lense 是多层筒状几何（同心圆），不限制的话每层都会画一遍准星，
+			// 叠起来就是万花筒。开启深度测试，只让最近的一层通过。
+			D3D11_DEPTH_STENCIL_DESC dsDesc{};
+			dsDesc.DepthEnable = TRUE;
+			dsDesc.DepthWriteMask = D3D11_DEPTH_WRITE_MASK_ZERO;
+			dsDesc.DepthFunc = D3D11_COMPARISON_LESS_EQUAL;
+			dsDesc.StencilEnable = FALSE;
+			a_dev->CreateDepthStencilState(&dsDesc, &s_ds);
+
 			wchar_t wpath[MAX_PATH] = {};
 			MultiByteToWideChar(CP_ACP, 0, kReticleDds, -1, wpath, MAX_PATH);
 			LoadDdsSrv(a_dev, wpath, &s_srv);
@@ -463,15 +473,21 @@ float4 main(float4 pos : SV_POSITION) : SV_Target {
 			ID3D11PixelShader* oldPS = nullptr;
 			a_ctx->PSGetShader(&oldPS, nullptr, nullptr);
 
+			ID3D11DepthStencilState* oldDS = nullptr;
+			UINT oldStencilRef = 0;
+			a_ctx->OMGetDepthStencilState(&oldDS, &oldStencilRef);
+
 			a_ctx->PSSetShader(s_ps, nullptr, 0);
 			a_ctx->PSSetConstantBuffers(0, 1, &s_cb);
 			a_ctx->PSSetShaderResources(0, 1, &s_srv);
 			a_ctx->PSSetSamplers(0, 1, &s_samp);
+			if (s_ds) a_ctx->OMSetDepthStencilState(s_ds, 0);
 
 			s_origDrawIndexed(a_ctx, a_count, a_start, a_base);
 
 			a_ctx->PSSetShader(oldPS, nullptr, 0);
 			if (oldPS) oldPS->Release();
+			if (oldDS) { a_ctx->OMSetDepthStencilState(oldDS, oldStencilRef); oldDS->Release(); }
 		}
 	}
 
