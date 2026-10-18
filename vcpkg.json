@@ -1,0 +1,18 @@
+{
+  "name": "reticlecenter",
+  "version-string": "0.1.0",
+  "description": "Center the STS scope reticle on screen center (screen-space, no TTS)",
+  "license": "MIT",
+  "dependencies": [
+    "boost-stl-interfaces",
+    "fmt",
+    "frozen",
+    "minhook",
+    "nowide",
+    "robin-hood-hashing",
+    "rsm-mmio",
+    "spdlog",
+    "srell",
+    "xbyak"
+  ]
+}
