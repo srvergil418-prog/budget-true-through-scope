@@ -349,28 +349,16 @@ namespace RC
 	}
 
 	// ======================= 透镜绘制识别 =======================
-	// 找一个适合当遮罩的"单层面片"：
-	//   Lense 是 128 三角的多层筒壁，拿它当遮罩会被自己的层挡掉；
-	//   ScopeFade:0 是 48 三角，更像单层面片，优先用它。
-	static UINT s_lensIndexCount = 0;   // ScopeFade 圆环
-	static UINT s_diskIndexCount = 0;   // 我们挂上去的圆盘透镜
+	// 回退：用 Lense（ScopeNormal 下那一块），不再用 ScopeFade。
+	static UINT s_lensIndexCount = 0;
+	static UINT s_diskIndexCount = 0;
 
 	static void CacheLenseIndexCount(RE::PlayerCharacter* a_pc)
 	{
 		if (s_lensIndexCount > 0) return;
 		if (!a_pc) return;
-		auto* root = a_pc->Get3D();
-		if (!root) return;
-
-		RE::NiAVObject* target = nullptr;
-		// 节点真名带 ":0" 后缀（ScopeFade:0），GetObjectByName 是精确匹配所以
-		// 找不到；用 FindNode 的子串匹配。
-		target = FindNode(a_pc, "ScopeFade");
-		if (!target) {
-			target = FindNode(a_pc, "Lense");
-		}
+		auto* target = FindNode(a_pc, "Lense");
 		if (!target) return;
-
 		if (auto* tri = target->IsTriShape()) {
 			s_lensIndexCount = tri->numTriangles * 3u;
 			Log("[LENS] using '%s' indexCount=%u (tri=%u vert=%u)",
@@ -583,8 +571,8 @@ float4 main(float4 pos : SV_POSITION) : SV_Target {
 				// 每帧算镜片投影（诊断用）
 				UpdateMask(a_pc);
 
-				// 注意：不再强制 Lense 可见（那会把整个 ScopeNormal 镜筒放出来）。
-				// ScopeFade 本来就在 ScopeAiming 下、开镜可见，不需要干预。
+				// 回退到 r73 的行为：强制 Lense 可见（覆盖 STS 剔除）
+				ForceLenseVisible(a_pc);
 
 				// 透镜只在开镜时可见
 				if (s_lensNode && s_lensNode->GetAppCulled()) {
