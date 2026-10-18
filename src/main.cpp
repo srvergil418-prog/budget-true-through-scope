@@ -139,12 +139,16 @@ namespace RC
 		const auto& pW = a_reticle->parent->world;
 		const float pScale = (std::fabs(pW.scale) > 1e-6f) ? pW.scale : 1.0f;
 
-		// 手工做 rotate^T * v（dev 分支的 NiMatrix3 没有 Transpose()）
+		// 手工做 rotate^T * v（dev 分支的 NiMatrix3 没有 Transpose()，
+		// NiPoint4 也没有 operator[]，所以用 .x/.y/.z 逐分量取）
 		const RE::NiPoint3 d = target - pW.translate;
+		const auto& r0 = pW.rotate.entry[0];
+		const auto& r1 = pW.rotate.entry[1];
+		const auto& r2 = pW.rotate.entry[2];
 		RE::NiPoint3 local;
-		local.x = pW.rotate.entry[0][0] * d.x + pW.rotate.entry[1][0] * d.y + pW.rotate.entry[2][0] * d.z;
-		local.y = pW.rotate.entry[0][1] * d.x + pW.rotate.entry[1][1] * d.y + pW.rotate.entry[2][1] * d.z;
-		local.z = pW.rotate.entry[0][2] * d.x + pW.rotate.entry[1][2] * d.y + pW.rotate.entry[2][2] * d.z;
+		local.x = r0.x * d.x + r1.x * d.y + r2.x * d.z;
+		local.y = r0.y * d.x + r1.y * d.y + r2.y * d.z;
+		local.z = r0.z * d.x + r1.z * d.y + r2.z * d.z;
 		local = local / pScale;
 
 		a_reticle->local.translate = local;
