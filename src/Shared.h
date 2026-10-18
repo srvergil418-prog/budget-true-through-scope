@@ -35,6 +35,7 @@ namespace RC
 	extern float g_maskOffX;      // 遮罩圆心相对屏幕中心的偏移
 	extern float g_maskOffY;
 	extern float g_maskRadius;    // 遮罩半径（像素）
+	extern float g_maskRadiusScale; // auto 模式下对自动半径的缩放
 	extern bool  g_maskAuto;      // true = 用镜片方向自动算遮罩（B 方案）
 
 	// ---- overlay（overlay.cpp 实现）----
