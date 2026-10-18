@@ -140,15 +140,15 @@ namespace RC
 		const float pScale = (std::fabs(pW.scale) > 1e-6f) ? pW.scale : 1.0f;
 
 		// 手工做 rotate^T * v（dev 分支的 NiMatrix3 没有 Transpose()，
-		// NiPoint4 也没有 operator[]，所以用 .x/.y/.z 逐分量取）
+		// NiPoint4 的成员是 .v.x / .pt[]，没有直接 .x）
 		const RE::NiPoint3 d = target - pW.translate;
 		const auto& r0 = pW.rotate.entry[0];
 		const auto& r1 = pW.rotate.entry[1];
 		const auto& r2 = pW.rotate.entry[2];
 		RE::NiPoint3 local;
-		local.x = r0.x * d.x + r1.x * d.y + r2.x * d.z;
-		local.y = r0.y * d.x + r1.y * d.y + r2.y * d.z;
-		local.z = r0.z * d.x + r1.z * d.y + r2.z * d.z;
+		local.x = r0.pt[0] * d.x + r1.pt[0] * d.y + r2.pt[0] * d.z;
+		local.y = r0.pt[1] * d.x + r1.pt[1] * d.y + r2.pt[1] * d.z;
+		local.z = r0.pt[2] * d.x + r1.pt[2] * d.y + r2.pt[2] * d.z;
 		local = local / pScale;
 
 		a_reticle->local.translate = local;
@@ -239,29 +239,22 @@ namespace RC
 			if (ads) s_frame++;
 
 			if (ads) {
-				// 每帧算遮罩（旧屏幕层方案，先保留但不再用于绘制）
+				// 每帧算镜片投影（屏幕层遮罩用）
 				UpdateMask(a_pc);
 
-				// 新方案：不 cull 准星，而是把它对齐到镜片中心。
-				// 每帧都做——镜片随武器晃，准星要跟着镜片走才能保持"在镜片里"。
+				// 隐藏原 STS 准星（它贴在瞄具上会跟着晃）
 				{
 					auto* ret = FindNode(a_pc, "Reticle");
-					auto* len = FindNode(a_pc, "Lense");
-					if (ret && len) {
-						AlignReticleToLense(ret, len);
-						// 确保它没被之前的版本 cull 掉
-						if (ret->GetAppCulled()) ret->SetAppCulled(false);
-						if (s_hideLog < 20) {
-							s_hideLog++;
-							Log("[ALIGN] %s world=(%.2f,%.2f,%.2f) <- lense=(%.2f,%.2f,%.2f)",
-								ret->name.c_str(),
-								ret->world.translate.x, ret->world.translate.y, ret->world.translate.z,
-								len->world.translate.x, len->world.translate.y, len->world.translate.z);
+					if (ret) {
+						if (!ret->GetAppCulled()) {
+							ret->SetAppCulled(true);
+							if (s_hideLog < 20) {
+								s_hideLog++;
+								Log("[CULL] hid %s", ret->name.c_str());
+							}
 						}
 					} else if (!s_lastADS) {
-						Log("[ALIGN] reticle=%s lense=%s",
-							ret ? ret->name.c_str() : "(null)",
-							len ? len->name.c_str() : "(null)");
+						Log("[CULL] no reticle node");
 					}
 				}
 
