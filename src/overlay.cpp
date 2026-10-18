@@ -95,21 +95,14 @@ namespace RC
 	}
 
 	// ======================= Shader =======================
+	// 改为全屏 quad：准星用像素坐标定位、遮罩也按像素算。
+	// 旧版 quad 只有准星那么大，红圈一超过那圈就被裁掉了（先四条弧、再全没）。
 	static const char* kVS = R"(
-struct VSOut { float4 pos : SV_POSITION; float2 uv : TEXCOORD0; };
-cbuffer Cb : register(b0) {
-    float screenW, screenH, centerX, centerY, boxW, boxH, alphaMul, maskR;
-    float maskCX, maskCY, pad0, pad1;
-};
+struct VSOut { float4 pos : SV_POSITION; };
 VSOut main(uint id : SV_VertexID) {
-    float2 c[4]  = { float2(-0.5,-0.5), float2(0.5,-0.5), float2(-0.5,0.5), float2(0.5,0.5) };
-    float2 uv[4] = { float2(0.0,0.0),  float2(1.0,0.0),  float2(0.0,1.0), float2(1.0,1.0) };
-    float2 px = float2(centerX, centerY) + c[id] * float2(boxW, boxH);
+    float2 c[4] = { float2(-1,-1), float2(1,-1), float2(-1,1), float2(1,1) };
     VSOut o;
-    o.pos = float4( px.x / screenW * 2.0 - 1.0,
-                    1.0 - px.y / screenH * 2.0,
-                    0.5, 1.0 );
-    o.uv = uv[id];
+    o.pos = float4(c[id], 0.5, 1.0);
     return o;
 }
 )";
@@ -121,13 +114,21 @@ cbuffer Cb : register(b0) {
 };
 Texture2D    gTex  : register(t0);
 SamplerState gSamp : register(s0);
-float4 main(float4 pos : SV_POSITION, float2 uv : TEXCOORD0) : SV_Target {
+float4 main(float4 pos : SV_POSITION) : SV_Target {
+    float2 p = pos.xy;
+
+    // 遮罩圆 + 红色边界（独立于准星大小）
     if (maskR > 0.5) {
-        float2 d = pos.xy - float2(maskCX, maskCY);
+        float2 d = p - float2(maskCX, maskCY);
         float dist = sqrt(dot(d, d));
         if (dist > maskR) discard;
-        // 调试用：遮罩边界画一圈红色，方便肉眼确认圆的位置和大小
         if (dist > maskR - 4.0) return float4(1.0, 0.0, 0.0, 1.0);
+    }
+
+    // 准星：像素坐标 -> 贴图 UV，超出准星范围就输出透明
+    float2 uv = (p - float2(centerX, centerY)) / float2(boxW, boxH) + 0.5;
+    if (uv.x < 0.0 || uv.x > 1.0 || uv.y < 0.0 || uv.y > 1.0) {
+        return float4(0.0, 0.0, 0.0, 0.0);
     }
     float4 c = gTex.Sample(gSamp, uv);
     return float4(c.rgb, c.a * alphaMul);
