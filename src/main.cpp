@@ -788,6 +788,18 @@ float4 main(float4 pos : SV_POSITION) : SV_Target {
 
 	static void STDMETHODCALLTYPE hkDrawIndexed(ID3D11DeviceContext* a_ctx, UINT a_count, UINT a_start, INT a_base)
 	{
+		// 受控抑制：F8 武装后，跳过下一次 144 索引的颜色 draw（仅一次）
+		if (s_suppressArmed && !s_suppressFired && a_count == 144 && g_ads.load()) {
+			ID3D11PixelShader* psChk = nullptr;
+			a_ctx->PSGetShader(&psChk, nullptr, nullptr);
+			if (psChk) {
+				psChk->Release();
+				s_suppressArmed = false;
+				s_suppressFired = true;
+				Log("[SUPPRESS] skipped one 144-index color draw (identity test)");
+				return;   // 跳过这一次绘制
+			}
+		}
 		// 实验 A：记录后续所有 144 候选 draw 的轻量元数据（最多 8 次，不拷贝缓冲），
 		// 用来判断同一网格是否在不同 pass（尤其深度/阴影与颜色）中重复出现。
 		static int s_metaCount = 0;
@@ -937,6 +949,13 @@ float4 main(float4 pos : SV_POSITION) : SV_Target {
 		}
 	}
 
+	// ======================= 受控抑制实验（身份验证） =======================
+	// 按 F8 武装，下一次「144 索引 + PS 非空」的颜色 draw 被跳过一次。
+	// 用途：确认该 draw 是否就是屏幕上的 ScopeFade 圆环。
+	// 规则：默认关闭、只命中一次、立即恢复、不改任何状态。
+	static bool s_suppressArmed = false;
+	static bool s_suppressFired = false;
+
 	// ======================= 主线程每帧 =======================
 	using PCUpdateMainThread_t = void(__fastcall*)(RE::PlayerCharacter*);
 	static PCUpdateMainThread_t s_origPCUpdate = nullptr;
@@ -1078,11 +1097,20 @@ float4 main(float4 pos : SV_POSITION) : SV_Target {
 
 	static HRESULT WINAPI hkPresent(IDXGISwapChain* a_sc, UINT a_sync, UINT a_flags)
 	{
-		// F7 开关调参菜单
+		// F7 开关调参菜单；F8 武装一次抑制实验
 		static bool s_lastF7 = false;
 		const bool f7 = (GetAsyncKeyState(VK_F7) & 0x8000) != 0;
 		if (f7 && !s_lastF7) ImGui_Toggle();
 		s_lastF7 = f7;
+
+		static bool s_lastF8 = false;
+		const bool f8 = (GetAsyncKeyState(VK_F8) & 0x8000) != 0;
+		if (f8 && !s_lastF8) {
+			s_suppressArmed = true;
+			s_suppressFired = false;
+			Log("[SUPPRESS] armed: next 144-index color draw will be skipped once");
+		}
+		s_lastF8 = f8;
 
 		ImGui_Render(a_sc);
 
