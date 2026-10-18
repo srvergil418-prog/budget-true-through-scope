@@ -299,6 +299,25 @@ namespace RC
 		CacheLensIndexCount(node);
 	}
 
+	// 打印一个子树下所有 BSTriShape 的三角形/顶点数和可见状态。
+	// 用途：找出 ADS 时真正在渲染的镜片（ScopeNormal 下的 Lense 会被 STS 剔除）。
+	static void DumpShapes(RE::NiAVObject* a_obj, int a_depth)
+	{
+		if (!a_obj || a_depth > 4) return;
+		if (auto* tri = a_obj->IsTriShape()) {
+			Log("[SHAPE]%d %-22s tri=%u vert=%u cull=%d",
+				a_depth, a_obj->name.c_str(),
+				tri->numTriangles, (unsigned)tri->numVertices,
+				a_obj->GetAppCulled() ? 1 : 0);
+			return;
+		}
+		if (auto* node = a_obj->IsNode()) {
+			for (auto& c : node->children) {
+				if (c) DumpShapes(c.get(), a_depth + 1);
+			}
+		}
+	}
+
 	// ======================= 透镜绘制识别 =======================
 	// 直接接管 STS 自带的镜片（Lense）绘制，不再挂自己的 nif：
 	// 镜片位置天然正确，换枪换镜自动跟随，不需要任何坐标对齐。
@@ -523,6 +542,22 @@ float4 main(float4 pos : SV_POSITION) : SV_Target {
 					s_lensIndexCount = 0;
 					CacheLenseIndexCount(a_pc);
 					s_lensNode = nullptr;   // 不再挂自己的 nif
+
+					// 列出 ScopeAiming 下所有几何体：ADS 时真正渲染的是它们，
+					// ScopeNormal 下的 Lense 已被 STS 剔除。
+					{
+						static int s_dumpShapes = 0;
+						if (s_dumpShapes < 2) {
+							s_dumpShapes++;
+							if (auto* root3d = a_pc->Get3D()) {
+								if (auto* aiming = root3d->GetObjectByName("ScopeAiming")) {
+									DumpShapes(aiming, 0);
+								} else {
+									Log("[SHAPE] ScopeAiming not found");
+								}
+							}
+						}
+					}
 
 					int cnt = 0;
 					auto* ret = FindNode(a_pc, "Reticle", &cnt);
