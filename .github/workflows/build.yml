@@ -1,0 +1,72 @@
+name: Build ReticleCenter
+
+# 独立 F4SE 插件：把 STS 瞄具的准星钉在屏幕中心（弹道中心），
+# 并用目镜的屏幕投影做圆形遮罩。不依赖 TrueThroughScope。
+#
+# 仓库布局：
+#   .                  <- 插件源码（本仓库根）
+#   CommonLibF4/       <- powerof3/CommonLibF4（CI 检出）
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [master, main]
+
+env:
+  VCPKG_DEFAULT_BINARY_CACHE: ${{ github.workspace }}/vcpkg-bincache
+
+jobs:
+  build:
+    runs-on: windows-latest
+
+    steps:
+      - name: Workflow revision marker
+        shell: pwsh
+        run: |
+          Write-Host 'RETICLE_CENTER_WORKFLOW_MARKER_02'
+          Write-Host "sha: ${{ github.sha }}"
+          Write-Host "run_id: ${{ github.run_id }}"
+
+      - name: Checkout plugins sources
+        uses: actions/checkout@v4
+
+      - name: Checkout CommonLibF4 (powerof3 fork)
+        uses: actions/checkout@v4
+        with:
+          repository: powerof3/CommonLibF4
+          ref: master
+          path: CommonLibF4
+          clean: false
+
+      - name: Setup vcpkg
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path $env:VCPKG_DEFAULT_BINARY_CACHE | Out-Null
+          Push-Location $env:VCPKG_INSTALLATION_ROOT
+          ./bootstrap-vcpkg.bat -disableMetrics
+          ./vcpkg --version
+          Pop-Location
+
+      - name: Cache vcpkg binary packages
+        uses: actions/cache@v4
+        with:
+          path: ${{ env.VCPKG_DEFAULT_BINARY_CACHE }}
+          key: vcpkg-rc-${{ runner.os }}-${{ hashFiles('vcpkg.json') }}
+          restore-keys: |
+            vcpkg-rc-${{ runner.os }}-
+
+      - name: Setup MSVC (x64)
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x64
+
+      - name: Build
+        shell: pwsh
+        run: pwsh -NoProfile -File ci/build.ps1
+
+      - name: Upload DLL
+        uses: actions/upload-artifact@v4
+        with:
+          name: ReticleCenter
+          path: build/**/ReticleCenter.dll
+          if-no-files-found: error
