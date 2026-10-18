@@ -123,6 +123,27 @@ namespace RC
 		}
 	}
 
+	// 把准星的 world (x,y) 对齐到镜片的 (x,y)，深度(z)保持不变。
+	// 两者在同一棵武器树、同一坐标系，所以完全不需要知道相机/眼睛在哪——
+	// 这正是之前用相机世界坐标失败的原因（两个空间差了几万单位）。
+	// 对准之后：镜片在屏幕中心 -> 准星也在屏幕中心，且准星在镜片后方，
+	// 天然透过镜片才看得见、被镜筒挡住，不需要任何遮罩/投影。
+	static bool AlignReticleToLense(RE::NiAVObject* a_reticle, RE::NiAVObject* a_lense)
+	{
+		if (!a_reticle || !a_lense || !a_reticle->parent) return false;
+
+		const RE::NiPoint3 lw = a_lense->world.translate;
+		const RE::NiPoint3 rw = a_reticle->world.translate;
+		const RE::NiPoint3 target{ lw.x, lw.y, rw.z };
+
+		const auto& pW = a_reticle->parent->world;
+		const float pScale = (std::fabs(pW.scale) > 1e-6f) ? pW.scale : 1.0f;
+		const RE::NiPoint3 local = (pW.rotate.Transpose() * (target - pW.translate)) / pScale;
+
+		a_reticle->local.translate = local;
+		return true;
+	}
+
 	// 打印子树的可见性与包围球（诊断 ADS 时哪些几何体是活的）
 	static void DumpSubtree(RE::NiAVObject* a_obj, int a_depth)
 	{
@@ -207,21 +228,29 @@ namespace RC
 			if (ads) s_frame++;
 
 			if (ads) {
-				// 每帧算遮罩（镜片随武器晃）
+				// 每帧算遮罩（旧屏幕层方案，先保留但不再用于绘制）
 				UpdateMask(a_pc);
 
-				// 隐藏原准星：ADS 进入时 + 每 15 帧重跑（切枪会重建节点）
-				if (!s_lastADS || (s_frame % 15) == 0) {
-					if (auto* ret = FindNode(a_pc, "Reticle")) {
-						if (!ret->GetAppCulled()) {
-							ret->SetAppCulled(true);
-							if (s_hideLog < 20) {
-								s_hideLog++;
-								Log("[CULL] hid %s", ret->name.c_str());
-							}
+				// 新方案：不 cull 准星，而是把它对齐到镜片中心。
+				// 每帧都做——镜片随武器晃，准星要跟着镜片走才能保持"在镜片里"。
+				{
+					auto* ret = FindNode(a_pc, "Reticle");
+					auto* len = FindNode(a_pc, "Lense");
+					if (ret && len) {
+						AlignReticleToLense(ret, len);
+						// 确保它没被之前的版本 cull 掉
+						if (ret->GetAppCulled()) ret->SetAppCulled(false);
+						if (s_hideLog < 20) {
+							s_hideLog++;
+							Log("[ALIGN] %s world=(%.2f,%.2f,%.2f) <- lense=(%.2f,%.2f,%.2f)",
+								ret->name.c_str(),
+								ret->world.translate.x, ret->world.translate.y, ret->world.translate.z,
+								len->world.translate.x, len->world.translate.y, len->world.translate.z);
 						}
 					} else if (!s_lastADS) {
-						Log("[CULL] no reticle node");
+						Log("[ALIGN] reticle=%s lense=%s",
+							ret ? ret->name.c_str() : "(null)",
+							len ? len->name.c_str() : "(null)");
 					}
 				}
 
@@ -277,7 +306,9 @@ namespace RC
 
 	static HRESULT WINAPI hkPresent(IDXGISwapChain* a_sc, UINT a_sync, UINT a_flags)
 	{
-		OverlayDraw(a_sc);
+		// 屏幕层准星已停用：现在准星是 3D 物体（对齐到镜片中心），
+		// 由游戏自己的管线渲染和遮挡，不再需要 overlay。
+		// OverlayDraw(a_sc);
 		return s_origPresent(a_sc, a_sync, a_flags);
 	}
 
