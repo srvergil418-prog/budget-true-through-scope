@@ -232,6 +232,51 @@ namespace RC
 		g_maskR = rPix;
 	}
 
+	// ======================= B: 圆形透镜（贴在武器上的 nif） =======================
+	// 从 Meshes\ReticleCenter\LensCircle.nif 加载一个圆形平面，挂到 Weapon 下。
+	// 它是个 3D 物体：决定"准星能出现在哪些像素"——圆外根本没有几何，所以画不出来。
+	// 位置参数 (0,0,10) 沿用 TTS 的默认值，之后可在菜单里偏移。
+	static RE::NiAVObject* s_lensNode = nullptr;
+
+	static void SpawnLens()
+	{
+		auto* pc = RE::PlayerCharacter::GetSingleton();
+		if (!pc || !pc->Get3D()) return;
+		auto* weapon = pc->Get3D()->GetObjectByName("Weapon");
+		if (!weapon) return;
+		auto* weaponNode = weapon->IsNode();
+		if (!weaponNode) return;
+
+		// 已经挂着且还在武器树下，就不重复加载
+		if (s_lensNode && s_lensNode->parent == weaponNode) return;
+
+		RE::NiPointer<RE::NiNode> model;
+		RE::BSModelDB::DBTraits::ArgsType args{};
+		args.prepareAfterLoad = 1;
+		args.loadTextures = 1;
+		args.performProcess = 1;
+		RE::BSModelDB::Demand("Meshes\\ReticleCenter\\LensCircle.nif", &model, args);
+
+		auto* node = model.get();
+		if (!node) {
+			static bool s_warned = false;
+			if (!s_warned) { s_warned = true; Log("[LENS] nif load FAILED"); }
+			return;
+		}
+		node->IncRefCount();
+		node->name = "RCLens";
+		weaponNode->AttachChild(node, false);
+		node->local.translate = RE::NiPoint3(0.0f, 0.0f, 10.0f);
+		node->local.rotate.MakeIdentity();
+
+		RE::NiUpdateData ud{};
+		weaponNode->Update(ud);
+		node->Update(ud);
+
+		s_lensNode = node;
+		Log("[LENS] spawned (%s) children=%zu", node->name.c_str(), node->children.size());
+	}
+
 	// ======================= 主线程每帧 =======================
 	using PCUpdateMainThread_t = void(__fastcall*)(RE::PlayerCharacter*);
 	static PCUpdateMainThread_t s_origPCUpdate = nullptr;
@@ -281,6 +326,9 @@ namespace RC
 				}
 
 				if (!s_lastADS) {
+					// 进入开镜：挂上圆形透镜（换枪后武器树重建，这里会重新挂）
+					SpawnLens();
+
 					int cnt = 0;
 					auto* ret = FindNode(a_pc, "Reticle", &cnt);
 					auto* len = FindNode(a_pc, "Lense");
