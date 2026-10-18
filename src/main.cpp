@@ -516,37 +516,8 @@ float4 main(float4 pos : SV_POSITION) : SV_Target {
 
 	static void STDMETHODCALLTYPE hkDrawIndexed(ID3D11DeviceContext* a_ctx, UINT a_count, UINT a_start, INT a_base)
 	{
-		const bool matchLens = (s_lensIndexCount > 0 && a_count == s_lensIndexCount);
-		const bool matchDisk = (s_diskIndexCount > 0 && a_count == s_diskIndexCount);
-
-		if ((matchLens || matchDisk) && g_ads.load()) {
-			// 光靠索引数会误伤其他几何体（天空等），再核对当前绑定的顶点缓冲
-			// 大小，和 TTS 的 IsTargetDrawCall 一样做双重校验。
-			ID3D11Buffer* vb = nullptr;
-			UINT stride = 0, off = 0;
-			a_ctx->IAGetVertexBuffers(0, 1, &vb, &stride, &off);
-			UINT vbBytes = 0;
-			if (vb) {
-				D3D11_BUFFER_DESC bd{};
-				vb->GetDesc(&bd);
-				vbBytes = bd.ByteWidth;
-				vb->Release();
-			}
-
-			static int s_hitLog = 0;
-			if (s_hitLog < 8) {
-				s_hitLog++;
-				Log("[DRAW] %s hit count=%u vbBytes=%u stride=%u",
-					matchLens ? "lens" : "disk", a_count, vbBytes, stride);
-			}
-
-			// 顶点缓冲必须非空、且元素大小合理（21~64 字节），否则不是我们的几何体
-			if (vbBytes > 0 && stride >= 12 && stride <= 128) {
-				LensDraw::Draw(a_ctx, a_count, a_start, a_base);
-				return;
-			}
-		}
-
+		// 3D 接管（LensDraw）已停用：索引数无法唯一标识几何体，会误伤天空。
+		// 保持 hook 存在但不干预，纯粹透传。
 		s_origDrawIndexed(a_ctx, a_count, a_start, a_base);
 	}
 
