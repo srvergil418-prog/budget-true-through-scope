@@ -414,14 +414,14 @@ cbuffer Cb : register(b0) {
 Texture2D    gTex  : register(t0);
 SamplerState gSamp : register(s0);
 float4 main(float4 pos : SV_POSITION) : SV_Target {
-    // 诊断：圆盘整片染绿。它应该正好盖住 ScopeFade 的洞。
-    return float4(0.0, 1.0, 0.0, 0.7);
-
-    // 正式逻辑：
-    // float2 uv = (pos.xy - float2(centerX, centerY)) / size + 0.5;
-    // if (uv.x < 0.0 || uv.x > 1.0 || uv.y < 0.0 || uv.y > 1.0) return float4(0.0, 0.0, 0.0, 0.0);
-    // float4 c = gTex.Sample(gSamp, uv);
-    // return float4(c.rgb, c.a * alpha);
+    // 调试模式：圆盘内、准星范围外 -> 半透明绿（定位用）；
+    // 准星范围内 -> 真实准星贴图。
+    float2 uv = (pos.xy - float2(centerX, centerY)) / size + 0.5;
+    if (uv.x < 0.0 || uv.x > 1.0 || uv.y < 0.0 || uv.y > 1.0) {
+        return float4(0.0, 1.0, 0.0, 0.45);
+    }
+    float4 c = gTex.Sample(gSamp, uv);
+    return float4(c.rgb, c.a * alpha);
 }
 )";
 
