@@ -25,6 +25,34 @@ if (-not (Test-Path $commonlibf4)) { throw "CommonLibF4 not found at $commonlibf
 $utf8NoBom = New-Object System.Text.UTF8Encoding($false)
 function Write-NoBom([string]$path, [string]$text) { [System.IO.File]::WriteAllText($path, $text, $utf8NoBom) }
 
+# ================================================================ 0) 把 ImageSpaceEffect.h 换成 dev-1.10.163 的版本
+#
+# master 的这个头文件里，bDisable 等是
+#     inline static REL::Relocation<bool*> bDisable{ REL::ID(2713225) };
+# —— class-scope static，DLL 一加载（早于 DllMain）就初始化，而 2713225 是
+# 新版本游戏的 ID，1.10.163 的地址库里没有 -> 直接弹
+#     REL/IDDB.cpp(127): id 2713225 not found!
+# 并用 MessageBox 终止进程。dev-1.10.163 分支同一位置是 1500590，对得上。
+$clf4 = Join-Path $root 'CommonLibF4'
+$target = Join-Path $clf4 'CommonLibF4/include/RE/Bethesda/ImageSpaceEffect.h'
+if ((Test-Path (Join-Path $clf4 '.git')) -and (Test-Path $target)) {
+    Push-Location $clf4
+    try {
+        git fetch --depth=1 origin dev-1.10.163 2>&1 | Out-Null
+        if ($LASTEXITCODE -ne 0) { throw 'git fetch dev-1.10.163 failed' }
+        $devText = git show FETCH_HEAD:CommonLibF4/include/RE/Bethesda/ImageSpaceEffect.h 2>&1
+        if ($LASTEXITCODE -ne 0) { throw 'git show ImageSpaceEffect.h failed' }
+        $devText = ($devText -join "`r`n")
+        if ($devText -notmatch 'REL::ID') { throw 'ImageSpaceEffect.h from dev has no REL::ID -- unexpected' }
+        [System.IO.File]::WriteAllText($target, $devText, (New-Object System.Text.UTF8Encoding($false)))
+        Write-Host '  [0/4] ImageSpaceEffect.h -> dev-1.10.163 IDs' -ForegroundColor Green
+    } finally {
+        Pop-Location
+    }
+} else {
+    Write-Host '  [0/4] ImageSpaceEffect.h overlay skipped' -ForegroundColor Yellow
+}
+
 # ================================================================ 1) hkVector4.h
 $hv = Join-Path $commonlibf4 'CommonLibF4/include/RE/Havok/hkVector4.h'
 if (Test-Path $hv) {
