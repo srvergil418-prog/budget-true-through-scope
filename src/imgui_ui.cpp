@@ -20,6 +20,7 @@ namespace RC
 	float g_maskRadius = 324.0f;
 	float g_maskRadiusScale = 1.0f;
 	bool  g_maskAuto = false;       // B 方案：用镜片方向自动算遮罩
+	float g_fovOverride = 0.0f;     // >0 = ADS 时强制 FOV
 
 	static bool s_init = false;
 	static bool s_menu = false;
@@ -125,6 +126,10 @@ namespace RC
 			Row("mask Y", &g_maskOffY, 0.0f, 1.0f, -2000.0f, 2000.0f);
 			Row("radius", &g_maskRadius, 324.0f, 5.0f, 10.0f, 2000.0f);
 			Row("radius x (auto)", &g_maskRadiusScale, 1.0f, 0.05f, 0.1f, 5.0f);
+
+			ImGui::Separator();
+			ImGui::Text("Camera FOV");
+			Row("fov (0 = game default)", &g_fovOverride, 0.0f, 1.0f, 0.0f, 150.0f);
 
 			ImGui::Separator();
 			ImGui::Text("auto raw: (%.0f, %.0f) r=%.0f", g_maskCX, g_maskCY, g_maskR);
