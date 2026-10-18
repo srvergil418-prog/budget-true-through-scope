@@ -250,8 +250,13 @@ namespace RC
 		auto* weaponNode = weapon->IsNode();
 		if (!weaponNode) return;
 
-		// 已经挂着且还在武器树下，就不重复加载
-		if (s_lensNode && s_lensNode->parent == weaponNode) return;
+		// 已经挂着且还在武器树下：只更新位置（菜单改完立刻生效），不重新加载
+		if (s_lensNode && s_lensNode->parent == weaponNode) {
+			s_lensNode->local.translate = RE::NiPoint3(g_lensOffX, g_lensOffY, g_lensOffZ);
+			RE::NiUpdateData ud{};
+			s_lensNode->Update(ud);
+			return;
+		}
 
 		RE::NiPointer<RE::NiNode> model;
 		RE::BSModelDB::DBTraits::ArgsType args{};
