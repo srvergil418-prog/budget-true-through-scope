@@ -242,6 +242,8 @@ namespace RC
 			static bool s_lastADS = false;
 			static int s_frame = 0;
 			static int s_hideLog = 0;
+			static bool s_fovSaved = false;
+			static float s_origFov = 0.0f;
 
 			const bool ads = IsInADS(a_pc);
 			g_ads.store(ads);
@@ -264,6 +266,17 @@ namespace RC
 						}
 					} else if (!s_lastADS) {
 						Log("[CULL] no reticle node");
+					}
+				}
+
+				// FOV 覆盖：>0 时强制用这个值（菜单里调）；进入 ADS 时记下原值
+				if (g_fovOverride > 1.0f) {
+					if (auto* cam = RE::PlayerCamera::GetSingleton()) {
+						if (!s_fovSaved) {
+							s_origFov = cam->firstPersonFOV;
+							s_fovSaved = true;
+						}
+						cam->firstPersonFOV = g_fovOverride;
 					}
 				}
 
@@ -304,6 +317,13 @@ namespace RC
 				}
 			} else if (s_lastADS) {
 				g_maskR = 0.0f;
+				// 退出开镜：把相机 FOV 还给游戏（掏枪/收镜后就是镜子自己的默认值）
+				if (s_fovSaved) {
+					if (auto* cam = RE::PlayerCamera::GetSingleton()) {
+						cam->firstPersonFOV = s_origFov;
+					}
+					s_fovSaved = false;
+				}
 				Log("[ADS exit]");
 			}
 
