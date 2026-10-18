@@ -377,13 +377,17 @@ float4 main(float4 pos : SV_POSITION, float2 uv : TEXCOORD0) : SV_Target {
 			// 全部参数来自 ImGui 菜单（F7 打开），玩家自己调到位
 			cb.centerX = (float)td.Width * 0.5f + g_reticleOffX;
 			cb.centerY = (float)td.Height * 0.5f + g_reticleOffY;
-			const float maskR = (g_maskRadius > 5.0f) ? g_maskRadius : ((float)td.Height * 0.15f);
-			cb.boxW = maskR * 2.0f * g_reticleScale;
-			cb.boxH = maskR * 2.0f * g_reticleScale;
+			// 准星大小只由 g_reticleSize * g_reticleScale 决定，与遮罩半径解耦
+			const float reticleSide = g_reticleSize * g_reticleScale;
+			cb.boxW = reticleSide;
+			cb.boxH = reticleSide;
 			cb.alphaMul = 1.0f;
+			// 遮罩：自动模式用镜片方向算出的值，否则用菜单里的固定值
+			const float maskR = g_maskAuto ? g_maskR
+			                               : ((g_maskRadius > 5.0f) ? g_maskRadius : ((float)td.Height * 0.15f));
 			cb.maskR = maskR;
-			cb.maskCX = (float)td.Width * 0.5f + g_maskOffX;
-			cb.maskCY = (float)td.Height * 0.5f + g_maskOffY;
+			cb.maskCX = (float)td.Width * 0.5f + (g_maskAuto ? g_maskCX : g_maskOffX);
+			cb.maskCY = (float)td.Height * 0.5f + (g_maskAuto ? g_maskCY : g_maskOffY);
 
 			D3D11_MAPPED_SUBRESOURCE ms{};
 			if (SUCCEEDED(ctx->Map(s_state.cb, 0, D3D11_MAP_WRITE_DISCARD, 0, &ms))) {
