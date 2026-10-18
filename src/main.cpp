@@ -300,9 +300,22 @@ namespace RC
 	}
 
 	// ======================= 透镜绘制识别 =======================
-	// 透镜几何体的索引数（numTriangles * 3），主线程从 BSTriShape 读出来。
-	// 渲染线程在 DrawIndexed 里拿 IndexCount 和它比对，就能认出"这次画的是透镜"。
+	// 直接接管 STS 自带的镜片（Lense）绘制，不再挂自己的 nif：
+	// 镜片位置天然正确，换枪换镜自动跟随，不需要任何坐标对齐。
 	static UINT s_lensIndexCount = 0;
+
+	static void CacheLenseIndexCount(RE::PlayerCharacter* a_pc)
+	{
+		if (s_lensIndexCount > 0) return;
+		if (!a_pc) return;
+		auto* lense = FindNode(a_pc, "Lense");
+		if (!lense) return;
+		if (auto* tri = lense->IsTriShape()) {
+			s_lensIndexCount = tri->numTriangles * 3u;
+			Log("[LENS] STS lense indexCount=%u (tri=%u vert=%u)",
+				s_lensIndexCount, tri->numTriangles, (unsigned)tri->numVertices);
+		}
+	}
 
 	static void CacheLensIndexCount(RE::NiAVObject* a_node)
 	{
@@ -493,8 +506,10 @@ float4 main(float4 pos : SV_POSITION) : SV_Target {
 				}
 
 				if (!s_lastADS) {
-					// 进入开镜：挂上圆形透镜（换枪后武器树重建，这里会重新挂）
-					SpawnLens();
+					// 进入开镜：读 STS 镜片的索引数（换枪可能变，所以每次重读）
+					s_lensIndexCount = 0;
+					CacheLenseIndexCount(a_pc);
+					s_lensNode = nullptr;   // 不再挂自己的 nif
 
 					int cnt = 0;
 					auto* ret = FindNode(a_pc, "Reticle", &cnt);
