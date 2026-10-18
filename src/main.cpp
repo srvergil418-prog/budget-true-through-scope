@@ -250,16 +250,30 @@ namespace RC
 		auto* weaponNode = weapon->IsNode();
 		if (!weaponNode) return;
 
-		// 基准位置用 TTS 的默认值 (0,0,10) —— 这个位置实测可见（之前那个白圆盘）。
-		// 自动对齐 Lense 的两版都不可用：节点原点和包围球中心都会把透镜送进
-		// 镜筒后面或偏出视野，所以退回固定基准 + 菜单微调。
+		// 目标位置：挂到 ScopeFade 的包围球中心 —— 那是圆环的圆心，也就是
+		// "洞"的中心，这个位置才是镜片该在的地方。
 		RE::NiPoint3 target{ g_lensOffX, g_lensOffY, g_lensOffZ };
+		if (auto* fade = FindNode(pc, "ScopeFade")) {
+			const RE::NiPoint3 c = fade->worldBound.center;
+			const auto& pW = weaponNode->world;
+			const float pScale = (std::fabs(pW.scale) > 1e-6f) ? pW.scale : 1.0f;
+			const RE::NiPoint3 d = c - pW.translate;
 
-		{
+			RE::NiPoint3 local;
+			local.x = pW.rotate.entry[0].pt[0] * d.x + pW.rotate.entry[1].pt[0] * d.y + pW.rotate.entry[2].pt[0] * d.z;
+			local.y = pW.rotate.entry[0].pt[1] * d.x + pW.rotate.entry[1].pt[1] * d.y + pW.rotate.entry[2].pt[1] * d.z;
+			local.z = pW.rotate.entry[0].pt[2] * d.x + pW.rotate.entry[1].pt[2] * d.y + pW.rotate.entry[2].pt[2] * d.z;
+			local = local / pScale;
+
+			target.x = local.x + g_lensOffX;
+			target.y = local.y + g_lensOffY;
+			target.z = local.z + g_lensOffZ;
+
 			static int s_alignLog = 0;
 			if (s_alignLog < 3) {
 				s_alignLog++;
-				Log("[LENS] target local=(%.2f,%.2f,%.2f)", target.x, target.y, target.z);
+				Log("[LENS] align to fade center=(%.2f,%.2f,%.2f) -> local=(%.2f,%.2f,%.2f)",
+					c.x, c.y, c.z, local.x, local.y, local.z);
 			}
 		}
 
@@ -411,14 +425,11 @@ cbuffer Cb : register(b0) {
 Texture2D    gTex  : register(t0);
 SamplerState gSamp : register(s0);
 float4 main(float4 pos : SV_POSITION) : SV_Target {
-    // 诊断：整片染红，用来定位 ScopeFade 在屏幕上的真实位置和大小。
-    return float4(1.0, 0.0, 0.0, 0.85);
-
-    // 正式逻辑（位置确认后恢复）：
-    // float2 uv = (pos.xy - float2(centerX, centerY)) / size + 0.5;
-    // if (uv.x < 0.0 || uv.x > 1.0 || uv.y < 0.0 || uv.y > 1.0) return float4(0.0, 0.0, 0.0, 0.0);
-    // float4 c = gTex.Sample(gSamp, uv);
-    // return float4(c.rgb, c.a * alpha);
+    // 屏幕 UV 采样准星：准星钉在屏幕上，但只有透镜几何体覆盖的像素会画出来。
+    float2 uv = (pos.xy - float2(centerX, centerY)) / size + 0.5;
+    if (uv.x < 0.0 || uv.x > 1.0 || uv.y < 0.0 || uv.y > 1.0) return float4(0.0, 0.0, 0.0, 0.0);
+    float4 c = gTex.Sample(gSamp, uv);
+    return float4(c.rgb, c.a * alpha);
 }
 )";
 
@@ -585,10 +596,10 @@ float4 main(float4 pos : SV_POSITION) : SV_Target {
 				}
 
 				if (!s_lastADS) {
-					// 进入开镜：读 STS 镜片的索引数（换枪可能变，所以每次重读）
+					// 进入开镜：读遮罩索引数 + 挂上覆盖"洞"的圆盘透镜
 					s_lensIndexCount = 0;
 					CacheLenseIndexCount(a_pc);
-					s_lensNode = nullptr;   // 不再挂自己的 nif
+					SpawnLens();
 
 					// 列出 ScopeAiming 下所有几何体：ADS 时真正渲染的是它们，
 					// ScopeNormal 下的 Lense 已被 STS 剔除。
