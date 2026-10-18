@@ -250,34 +250,16 @@ namespace RC
 		auto* weaponNode = weapon->IsNode();
 		if (!weaponNode) return;
 
-		// 目标位置：默认对齐镜片（Lense）的位置，换枪/换镜自动跟随。
-		// 注意：Lense 的 world 是【世界坐标】，而 node->local 是【相对 Weapon 的
-		// 局部坐标】，必须用 Weapon 的世界变换做逆变换（转置旋转 + 平移 + 缩放），
-		// 直接赋值会把透镜扔到错误的地方。
+		// 基准位置用 TTS 的默认值 (0,0,10) —— 这个位置实测可见（之前那个白圆盘）。
+		// 自动对齐 Lense 的两版都不可用：节点原点和包围球中心都会把透镜送进
+		// 镜筒后面或偏出视野，所以退回固定基准 + 菜单微调。
 		RE::NiPoint3 target{ g_lensOffX, g_lensOffY, g_lensOffZ };
-		if (auto* lenseAlign = FindNode(pc, "Lense")) {
-			// 用包围球中心而不是节点原点：节点原点（world.translate）和镜片的
-			// 几何中心差得很远（实测 (7.08,30.79,104.60) vs (5.79,21.73,119.87)）。
-			const RE::NiPoint3 lw = lenseAlign->worldBound.center;
-			const auto& pW = weaponNode->world;
-			const float pScale = (std::fabs(pW.scale) > 1e-6f) ? pW.scale : 1.0f;
-			const RE::NiPoint3 d = lw - pW.translate;
 
-			RE::NiPoint3 local;
-			local.x = pW.rotate.entry[0].pt[0] * d.x + pW.rotate.entry[1].pt[0] * d.y + pW.rotate.entry[2].pt[0] * d.z;
-			local.y = pW.rotate.entry[0].pt[1] * d.x + pW.rotate.entry[1].pt[1] * d.y + pW.rotate.entry[2].pt[1] * d.z;
-			local.z = pW.rotate.entry[0].pt[2] * d.x + pW.rotate.entry[1].pt[2] * d.y + pW.rotate.entry[2].pt[2] * d.z;
-			local = local / pScale;
-
-			target.x = local.x + g_lensOffX;
-			target.y = local.y + g_lensOffY;
-			target.z = local.z + g_lensOffZ;
-
+		{
 			static int s_alignLog = 0;
 			if (s_alignLog < 3) {
 				s_alignLog++;
-				Log("[LENS] align: lenseWorld=(%.2f,%.2f,%.2f) weaponWorld=(%.2f,%.2f,%.2f) -> local=(%.2f,%.2f,%.2f)",
-					lw.x, lw.y, lw.z, pW.translate.x, pW.translate.y, pW.translate.z, local.x, local.y, local.z);
+				Log("[LENS] target local=(%.2f,%.2f,%.2f)", target.x, target.y, target.z);
 			}
 		}
 
