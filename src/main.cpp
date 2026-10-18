@@ -398,14 +398,12 @@ cbuffer Cb : register(b0) {
 Texture2D    gTex  : register(t0);
 SamplerState gSamp : register(s0);
 float4 main(float4 pos : SV_POSITION) : SV_Target {
-    // 诊断：暂时整片输出半透明绿，用来确认镜片在屏幕上的真实位置和大小。
-    return float4(0.0, 1.0, 0.0, 0.55);
-
-    // 正式逻辑（定位准确后恢复）：
-    // float2 uv = (pos.xy - float2(centerX, centerY)) / size + 0.5;
-    // if (uv.x < 0.0 || uv.x > 1.0 || uv.y < 0.0 || uv.y > 1.0) return float4(0.0, 0.0, 0.0, 0.0);
-    // float4 c = gTex.Sample(gSamp, uv);
-    // return float4(c.rgb, c.a * alpha);
+    // 屏幕 UV 采样准星：准星位置钉在屏幕上（不跟镜片动），
+    // 但只有镜片几何体覆盖的像素会被画出来 —— 即"透过镜片才可见"。
+    float2 uv = (pos.xy - float2(centerX, centerY)) / size + 0.5;
+    if (uv.x < 0.0 || uv.x > 1.0 || uv.y < 0.0 || uv.y > 1.0) return float4(0.0, 0.0, 0.0, 0.0);
+    float4 c = gTex.Sample(gSamp, uv);
+    return float4(c.rgb, c.a * alpha);
 }
 )";
 
