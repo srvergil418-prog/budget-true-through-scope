@@ -310,9 +310,8 @@ namespace RC
 
 	static HRESULT WINAPI hkPresent(IDXGISwapChain* a_sc, UINT a_sync, UINT a_flags)
 	{
-		// 屏幕层准星已停用：现在准星是 3D 物体（对齐到镜片中心），
-		// 由游戏自己的管线渲染和遮挡，不再需要 overlay。
-		// OverlayDraw(a_sc);
+		// 屏幕层准星：固定在屏幕中心，不跟瞄具晃
+		OverlayDraw(a_sc);
 		return s_origPresent(a_sc, a_sync, a_flags);
 	}
 
