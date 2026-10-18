@@ -394,6 +394,7 @@ namespace RC
 		a_ctx->PSGetShader(&ps, nullptr, nullptr);
 		a_ctx->IAGetInputLayout(&il);
 		Log("[CAP] VS=%p PS=%p IL=%p", (void*)vs, (void*)ps, (void*)il);
+		if (il) DumpIlFor(il);
 		if (vs) vs->Release();
 		if (ps) ps->Release();
 		if (il) il->Release();
@@ -457,17 +458,18 @@ namespace RC
 			Log("[CAP] DSV null");
 		}
 
-		// BlendState 描述
+		// BlendState 完整描述（RT0-RT3 各自）
 		if (bs) {
 			D3D11_BLEND_DESC bd{};
 			bs->GetDesc(&bd);
-			Log("[CAP] Blend: enable=%d src=%d dst=%d op=%d alphaSrc=%d alphaDst=%d alphaOp=%d writeMask=0x%X",
-				bd.RenderTarget[0].BlendEnable,
-				(int)bd.RenderTarget[0].SrcBlend, (int)bd.RenderTarget[0].DestBlend,
-				(int)bd.RenderTarget[0].BlendOp,
-				(int)bd.RenderTarget[0].SrcBlendAlpha, (int)bd.RenderTarget[0].DestBlendAlpha,
-				(int)bd.RenderTarget[0].BlendOpAlpha,
-				bd.RenderTarget[0].RenderTargetWriteMask);
+			Log("[CAP] Blend IndependentBlend=%d AlphaToCoverage=%d", bd.IndependentBlendEnable, bd.AlphaToCoverageEnable);
+			for (int i = 0; i < 4; ++i) {
+				const auto& rt = bd.RenderTarget[i];
+				Log("[CAP] BlendRT[%d] en=%d src=%d dst=%d op=%d aSrc=%d aDst=%d aOp=%d mask=0x%X",
+					i, rt.BlendEnable, (int)rt.SrcBlend, (int)rt.DestBlend, (int)rt.BlendOp,
+					(int)rt.SrcBlendAlpha, (int)rt.DestBlendAlpha, (int)rt.BlendOpAlpha,
+					rt.RenderTargetWriteMask);
+			}
 		}
 
 		// DepthStencilState 描述
@@ -813,11 +815,16 @@ float4 main(float4 pos : SV_POSITION) : SV_Target {
 			if (ibM) ibM->Release();
 		}
 
-		// 一次性只读诊断：捕获第一个被判定为 ScopeFade 候选的 draw（144 索引）。
-		// 锁存后不再触发，避免逐帧 Copy/Map 造成卡顿。
+		// 一次性只读诊断：只捕获【颜色 pass】（PS != nullptr）的 144 候选。
+		// 之前先命中 PS=NULL 的深度预 pass，导致顶点数据看起来反常。
 		if (!s_fadeCaptured && a_count == 144 && g_ads.load()) {
-			s_fadeCaptured = true;
-			CaptureScopeFade(a_ctx, a_count, a_start, a_base);
+			ID3D11PixelShader* psCheck = nullptr;
+			a_ctx->PSGetShader(&psCheck, nullptr, nullptr);
+			if (psCheck) {
+				psCheck->Release();
+				s_fadeCaptured = true;
+				CaptureScopeFade(a_ctx, a_count, a_start, a_base);
+			}
 		}
 
 		// 照 TTS 的 IsTargetDrawCall：用「索引数 + 顶点 stride」双重匹配。
@@ -840,6 +847,59 @@ float4 main(float4 pos : SV_POSITION) : SV_Target {
 			}
 		}
 		s_origDrawIndexed(a_ctx, a_count, a_start, a_base);
+	}
+
+	// ======================= Input Layout 取证 =======================
+	// IAGetInputLayout 只给指针，拿不到元素描述。这里 hook CreateInputLayout，
+	// 把每个 InputLayout 指针和它的 element desc 关联起来，供捕获时反查。
+	struct IlRecord
+	{
+		void* ptr = nullptr;
+		UINT count = 0;
+		D3D11_INPUT_ELEMENT_DESC descs[16]{};
+	};
+	static IlRecord s_ilRecords[64];
+	static int s_ilRecordCount = 0;
+
+	using CreateInputLayout_t = HRESULT(STDMETHODCALLTYPE*)(ID3D11Device*, const D3D11_INPUT_ELEMENT_DESC*, UINT, const void*, SIZE_T, ID3D11InputLayout**);
+	static CreateInputLayout_t s_origCreateInputLayout = nullptr;
+
+	static HRESULT STDMETHODCALLTYPE hkCreateInputLayout(ID3D11Device* a_dev, const D3D11_INPUT_ELEMENT_DESC* a_desc, UINT a_num,
+		const void* a_code, SIZE_T a_codeSize, ID3D11InputLayout** a_out)
+	{
+		const HRESULT hr = s_origCreateInputLayout(a_dev, a_desc, a_num, a_code, a_codeSize, a_out);
+		if (SUCCEEDED(hr) && a_out && *a_out && s_ilRecordCount < 64) {
+			auto& rec = s_ilRecords[s_ilRecordCount++];
+			rec.ptr = *a_out;
+			rec.count = (a_num < 16) ? a_num : 16;
+			for (UINT i = 0; i < rec.count; ++i) rec.descs[i] = a_desc[i];
+			Log("[IL] created ptr=%p elements=%u", rec.ptr, rec.count);
+			for (UINT i = 0; i < rec.count; ++i) {
+				Log("[IL]   %s%d fmt=%d slot=%u off=%u perInst=%d",
+					rec.descs[i].SemanticName ? rec.descs[i].SemanticName : "?",
+					rec.descs[i].SemanticIndex, (int)rec.descs[i].Format,
+					rec.descs[i].InputSlot, rec.descs[i].AlignedByteOffset,
+					rec.descs[i].InputSlotClass == D3D11_INPUT_PER_INSTANCE_DATA ? 1 : 0);
+			}
+		}
+		return hr;
+	}
+
+	static void DumpIlFor(void* a_ptr)
+	{
+		for (int i = 0; i < s_ilRecordCount; ++i) {
+			if (s_ilRecords[i].ptr != a_ptr) continue;
+			auto& rec = s_ilRecords[i];
+			Log("[CAP] IL desc for %p (%u elements):", a_ptr, rec.count);
+			for (UINT k = 0; k < rec.count; ++k) {
+				Log("[CAP]   %s%d fmt=%d slot=%u off=%u",
+					rec.descs[k].SemanticName ? rec.descs[k].SemanticName : "?",
+					rec.descs[k].SemanticIndex, (int)rec.descs[k].Format,
+					rec.descs[k].InputSlot, rec.descs[k].AlignedByteOffset);
+			}
+			return;
+		}
+		Log("[CAP] IL desc for %p: NOT FOUND in records (created before hook)", a_ptr);
 	}
 
 	// ======================= 主线程每帧 =======================
@@ -1031,6 +1091,21 @@ float4 main(float4 pos : SV_POSITION) : SV_Target {
 			Log("[INIT] ClipCursor hooked");
 		} else {
 			Log("[INIT] ClipCursor hook FAILED");
+		}
+
+		// Input Layout 取证：hook ID3D11Device::CreateInputLayout (vtable[11])
+		{
+			auto* rdDev = RE::BSGraphics::RendererData::GetSingleton();
+			if (rdDev && rdDev->device) {
+				auto* dev = (ID3D11Device*)static_cast<void*>(rdDev->device);
+				void** vtDev = *(void***)dev;
+				if (MH_CreateHook(vtDev[11], (LPVOID)&hkCreateInputLayout, (LPVOID*)&s_origCreateInputLayout) == MH_OK) {
+					MH_EnableHook(vtDev[11]);
+					Log("[INIT] CreateInputLayout hooked");
+				} else {
+					Log("[INIT] CreateInputLayout hook FAILED");
+				}
+			}
 		}
 
 		// 透镜绘制识别：hook ID3D11DeviceContext::DrawIndexed (vtable[12])
