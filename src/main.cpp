@@ -250,9 +250,19 @@ namespace RC
 		auto* weaponNode = weapon->IsNode();
 		if (!weaponNode) return;
 
+		// 目标位置：默认对齐镜片（Lense）的位置，换枪/换镜自动跟随。
+		// 菜单里的 lens X/Y/Z 作为额外微调叠加在上面。
+		RE::NiPoint3 target{ g_lensOffX, g_lensOffY, g_lensOffZ };
+		if (auto* lenseAlign = FindNode(pc, "Lense")) {
+			const RE::NiPoint3 lw = lenseAlign->world.translate;
+			target.x = lw.x + g_lensOffX;
+			target.y = lw.y + g_lensOffY;
+			target.z = lw.z + g_lensOffZ;
+		}
+
 		// 已经挂着且还在武器树下：只更新位置（菜单改完立刻生效），不重新加载
 		if (s_lensNode && s_lensNode->parent == weaponNode) {
-			s_lensNode->local.translate = RE::NiPoint3(g_lensOffX, g_lensOffY, g_lensOffZ);
+			s_lensNode->local.translate = target;
 			RE::NiUpdateData ud{};
 			s_lensNode->Update(ud);
 			return;
@@ -274,7 +284,7 @@ namespace RC
 		node->IncRefCount();
 		node->name = "RCLens";
 		weaponNode->AttachChild(node, false);
-		node->local.translate = RE::NiPoint3(g_lensOffX, g_lensOffY, g_lensOffZ);
+		node->local.translate = target;
 		node->local.rotate.MakeIdentity();
 
 		RE::NiUpdateData ud{};
@@ -544,8 +554,9 @@ float4 main(float4 pos : SV_POSITION) : SV_Target {
 
 		ImGui_Render(a_sc);
 
-		// 屏幕层准星：固定在屏幕中心，不跟瞄具晃
-		OverlayDraw(a_sc);
+		// 屏幕层 overlay 已停用：准星现在画在透镜几何体上（LensDraw），
+		// 可见范围由透镜几何本身决定，不再需要屏幕空间的圆。
+		// OverlayDraw(a_sc);
 		return s_origPresent(a_sc, a_sync, a_flags);
 	}
 
