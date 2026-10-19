@@ -1451,6 +1451,33 @@ float4 main(float4 pos : SV_POSITION) : SV_Target {
 		Log("[CAP] IL desc for %p: NOT FOUND in records (created before hook)", a_ptr);
 	}
 
+	// ======================= ScopeNormal 子树递归枚举 =======================
+	// 递归列出整个 ScopeNormal 下的所有节点/几何，确认 [NORMAL] 是否漏了 shape
+	static void DumpSubtreeRec(RE::NiAVObject* a_obj, int a_depth, int& a_shapes)
+	{
+		if (!a_obj || a_depth > 6) return;
+		const char* type = "?";
+		auto* tri = a_obj->IsTriShape();
+		if (tri) {
+			type = "TriShape";
+			a_shapes++;
+			Log("[SUB] %*s%s tri=%u vert=%u cull=%d", a_depth * 2, "", a_obj->name.c_str(),
+				tri->numTriangles, (unsigned)tri->numVertices, a_obj->GetAppCulled() ? 1 : 0);
+		} else if (a_obj->IsNode()) {
+			type = "Node";
+			auto* node = a_obj->IsNode();
+			Log("[SUB] %*s%s (%s) children=%zu cull=%d", a_depth * 2, "", a_obj->name.c_str(),
+				type, node->children.size(), a_obj->GetAppCulled() ? 1 : 0);
+			for (auto& ch : node->children) {
+				if (ch) DumpSubtreeRec(ch.get(), a_depth + 1, a_shapes);
+			}
+			return;
+		} else {
+			Log("[SUB] %*s%s (other) cull=%d", a_depth * 2, "", a_obj->name.c_str(), a_obj->GetAppCulled() ? 1 : 0);
+			return;
+		}
+	}
+
 	// ======================= 场景树侧取证（ScopeFade） =======================
 	// 记录 ScopeFade 这个 BSTriShape 的实际字段，供后续与渲染层 Draw 建立映射。
 	// 只读；指针仅用于本次运行诊断，不写死进任何识别逻辑。
@@ -1571,6 +1598,17 @@ float4 main(float4 pos : SV_POSITION) : SV_Target {
 
 				// 每次 ADS 进入时列出 ScopeNormal 支的全部子节点（物镜在这里）
 				if (!s_lastADS) {
+					// P0：递归枚举整个 ScopeNormal 子树（确认是否漏了 shape）
+					if (auto* sn2 = FindNode(a_pc, "ScopeNormal")) {
+						static int s_subLog = 0;
+						if (s_subLog < 2) {
+							s_subLog++;
+							int shapes = 0;
+							Log("[SUB] === ScopeNormal subtree ===");
+							DumpSubtreeRec(sn2, 0, shapes);
+							Log("[SUB] === total drawable shapes = %d ===", shapes);
+						}
+					}
 					if (auto* normalNode = FindNode(a_pc, "ScopeNormal")) {
 						if (auto* nn = normalNode->IsNode()) {
 							Log("[NORMAL] ScopeNormal children (%u):", (unsigned)nn->children.size());
