@@ -50,6 +50,10 @@ namespace RC
 	extern bool  g_supNif;        // 不渲染自挂 nif（96/stride24）
 	extern bool  g_supLense;      // 不渲染 Lense 的两个 384 draw（A+B 一起）
 	extern bool  g_forceLense;    // 强制 Lense:0 可见（覆盖 STS 剔除）
+	// 逐节点强制显示 ScopeNormal 下的子节点（默认被 STS 剔除）
+	extern bool  g_forcePoly;     // polySurface22
+	extern bool  g_forceMount1;
+	extern bool  g_forceMount2;
 	extern bool  g_wantShot;      // 请求截一张图（菜单按钮）
 
 	// ---- overlay（overlay.cpp 实现）----
