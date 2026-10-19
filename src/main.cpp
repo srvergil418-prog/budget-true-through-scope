@@ -476,8 +476,8 @@ namespace RC
 				if (dim == D3D11_RESOURCE_DIMENSION_TEXTURE2D) {
 					D3D11_TEXTURE2D_DESC td{};
 					((ID3D11Texture2D*)res)->GetDesc(&td);
-					Log("[CAP] RTV[%d] %ux%u fmt=%d bind=0x%X mips=%u",
-						i, td.Width, td.Height, (int)td.Format, td.BindFlags, td.MipLevels);
+					Log("[CAP] RTV[%d] %ux%u fmt=%d bind=0x%X mips=%u samples=%u",
+						i, td.Width, td.Height, (int)td.Format, td.BindFlags, td.MipLevels, td.SampleDesc.Count);
 				} else {
 					Log("[CAP] RTV[%d] non-2D (dim=%d)", i, (int)dim);
 				}
@@ -486,6 +486,11 @@ namespace RC
 			rtvs[i]->Release();
 		}
 		if (dsv) {
+			// 分两项：DSV view 格式（typed）vs 底层资源格式（可能是 typeless）
+			D3D11_DEPTH_STENCIL_VIEW_DESC dsvd{};
+			dsv->GetDesc(&dsvd);
+			Log("[CAP] DSV view: fmt=%d dim=%d", (int)dsvd.Format, (int)dsvd.ViewDimension);
+
 			ID3D11Resource* res = nullptr;
 			dsv->GetResource(&res);
 			if (res) {
@@ -494,7 +499,8 @@ namespace RC
 				if (dim == D3D11_RESOURCE_DIMENSION_TEXTURE2D) {
 					D3D11_TEXTURE2D_DESC td{};
 					((ID3D11Texture2D*)res)->GetDesc(&td);
-					Log("[CAP] DSV %ux%u fmt=%d bind=0x%X", td.Width, td.Height, (int)td.Format, td.BindFlags);
+					Log("[CAP] DSV resource: %ux%u fmt=%d bind=0x%X samples=%u",
+						td.Width, td.Height, (int)td.Format, td.BindFlags, td.SampleDesc.Count);
 				}
 				res->Release();
 			}
@@ -517,13 +523,19 @@ namespace RC
 			}
 		}
 
-		// DepthStencilState 描述
+		// DepthStencilState 完整描述（含双面 stencil ops 和 ref）
 		if (ds) {
 			D3D11_DEPTH_STENCIL_DESC dsd{};
 			ds->GetDesc(&dsd);
-			Log("[CAP] Depth: enable=%d writeMask=%d func=%d | stencilEnable=%d readMask=0x%X writeMask=0x%X",
+			Log("[CAP] Depth: enable=%d writeMask=%d func=%d | stencilEnable=%d readMask=0x%X writeMask=0x%X ref=%u",
 				dsd.DepthEnable, (int)dsd.DepthWriteMask, (int)dsd.DepthFunc,
-				dsd.StencilEnable, dsd.StencilReadMask, dsd.StencilWriteMask);
+				dsd.StencilEnable, dsd.StencilReadMask, dsd.StencilWriteMask, stencilRef);
+			Log("[CAP] Stencil Front: func=%d fail=%d dfail=%d pass=%d",
+				(int)dsd.FrontFace.StencilFunc, (int)dsd.FrontFace.StencilFailOp,
+				(int)dsd.FrontFace.StencilDepthFailOp, (int)dsd.FrontFace.StencilPassOp);
+			Log("[CAP] Stencil Back:  func=%d fail=%d dfail=%d pass=%d",
+				(int)dsd.BackFace.StencilFunc, (int)dsd.BackFace.StencilFailOp,
+				(int)dsd.BackFace.StencilDepthFailOp, (int)dsd.BackFace.StencilPassOp);
 		}
 
 		// RasterizerState 描述
