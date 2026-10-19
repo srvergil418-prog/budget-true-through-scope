@@ -474,8 +474,12 @@ float4 main(float4 pos : SV_POSITION) : SV_Target {
 	static std::vector<float>    s_slotPos[4];   // x,y,z triples
 	static int s_lenseSlotHit = 0;
 
+	// r165: 每个 slot 的 depth pass / color pass 状态各取证一次，并排对比
+	static bool s_passStateLogged[4][2] = {};    // [slot][0=depth, 1=color]
+
 	static int FindOrAddLenseSlot(ID3D11Buffer* a_vb, UINT a_voff);
 	static void ExamineLenseDraw(ID3D11DeviceContext* a_ctx, UINT a_count, UINT a_start, INT a_base, int a_slot);
+	static void ExaminePassState(ID3D11DeviceContext* a_ctx, int a_slot, bool a_isColor, UINT a_voff);
 
 	static void DumpIlFor(void* a_ptr);
 
@@ -1106,13 +1110,17 @@ float4 main(float4 pos : SV_POSITION) : SV_Target {
 			ID3D11Buffer* vbP = nullptr;
 			UINT strideP = 0, voffP = 0;
 			a_ctx->IAGetVertexBuffers(0, 1, &vbP, &strideP, &voffP);
-			if (colorP && strideP == 20) {
+			// r165: depth pass 与 color pass 都走这里，各记录一次状态（并排对比）
+			if (strideP == 20) {
 				const int slot = FindOrAddLenseSlot(vbP, voffP);
-				if (slot >= 0 && !s_lenseSlots[slot].captured) {
-					s_lenseSlots[slot].captured = true;
-					++s_lenseSlotHit;
-					Log("[P0] 384 color draw #%d new identity -> slot %d (voff=%u)", s_lenseSlotHit, slot, voffP);
-					ExamineLenseDraw(a_ctx, a_count, a_start, a_base, slot);
+				if (slot >= 0) {
+					ExaminePassState(a_ctx, slot, colorP, voffP);
+					if (colorP && !s_lenseSlots[slot].captured) {
+						s_lenseSlots[slot].captured = true;
+						++s_lenseSlotHit;
+						Log("[P0] 384 color draw #%d new identity -> slot %d (voff=%u)", s_lenseSlotHit, slot, voffP);
+						ExamineLenseDraw(a_ctx, a_count, a_start, a_base, slot);
+					}
 				}
 			}
 			if (vbP) vbP->Release();
@@ -1545,6 +1553,103 @@ float4 main(float4 pos : SV_POSITION) : SV_Target {
 			}
 		}
 		return -1;
+	}
+
+	// r165: 并排取证 —— 同一 slot 的 depth pass 与 color pass 的完整渲染状态
+	// 目的：判断"目镜内全黑"是否由深度预 pass 写深度导致
+	static void ExaminePassState(ID3D11DeviceContext* a_ctx, int a_slot, bool a_isColor, UINT a_voff)
+	{
+		const int pi = a_isColor ? 1 : 0;
+		if (a_slot < 0 || a_slot >= 4) return;
+		if (s_passStateLogged[a_slot][pi]) return;
+		s_passStateLogged[a_slot][pi] = true;
+
+		// 深度/模板状态
+		ID3D11DepthStencilState* ds = nullptr;
+		UINT ref = 0;
+		a_ctx->OMGetDepthStencilState(&ds, &ref);
+		int dEn = -1, dWm = -1, dFunc = -1;
+		int sEn = -1, sRm = -1, sWm = -1, sFunc = -1, sPass = -1, sFail = -1, sDfail = -1;
+		if (ds) {
+			D3D11_DEPTH_STENCIL_DESC dd{};
+			ds->GetDesc(&dd);
+			dEn = dd.DepthEnable ? 1 : 0;
+			dWm = (int)dd.DepthWriteMask;
+			dFunc = (int)dd.DepthFunc;
+			sEn = dd.StencilEnable ? 1 : 0;
+			sRm = dd.StencilReadMask;
+			sWm = dd.StencilWriteMask;
+			sFunc = (int)dd.FrontFace.StencilFunc;
+			sPass = (int)dd.FrontFace.StencilPassOp;
+			sFail = (int)dd.FrontFace.StencilFailOp;
+			sDfail = (int)dd.FrontFace.StencilDepthFailOp;
+		}
+
+		// DSV 格式
+		ID3D11DepthStencilView* dsv = nullptr;
+		a_ctx->OMGetRenderTargets(0, nullptr, &dsv);
+		int dsvViewFmt = -1, dsvResFmt = -1, dsvW = 0, dsvH = 0;
+		if (dsv) {
+			D3D11_DEPTH_STENCIL_VIEW_DESC dvd{};
+			dsv->GetDesc(&dvd);
+			dsvViewFmt = (int)dvd.Format;
+			ID3D11Resource* res = nullptr;
+			dsv->GetResource(&res);
+			if (res) {
+				D3D11_RESOURCE_DIMENSION dim = D3D11_RESOURCE_DIMENSION_UNKNOWN;
+				res->GetType(&dim);
+				if (dim == D3D11_RESOURCE_DIMENSION_TEXTURE2D) {
+					D3D11_TEXTURE2D_DESC td{};
+					((ID3D11Texture2D*)res)->GetDesc(&td);
+					dsvResFmt = (int)td.Format;
+					dsvW = (int)td.Width;
+					dsvH = (int)td.Height;
+				}
+				res->Release();
+			}
+			dsv->Release();
+		}
+
+		// RTV 数量与各自格式尺寸
+		ID3D11RenderTargetView* rtvs[8] = {};
+		ID3D11DepthStencilView* dsv2 = nullptr;
+		a_ctx->OMGetRenderTargets(8, rtvs, &dsv2);
+		if (dsv2) dsv2->Release();
+		int rtvCount = 0;
+		for (int i = 0; i < 8; ++i) if (rtvs[i]) ++rtvCount;
+
+		// Viewport
+		D3D11_VIEWPORT vp{};
+		UINT vpCount = 1;
+		a_ctx->RSGetViewports(&vpCount, &vp);
+
+		Log("[PASS] slot=%d pass=%s voff=%u | Depth(en=%d wm=%d func=%d) | Stencil(en=%d rm=0x%X wm=0x%X func=%d pass=%d fail=%d dfail=%d ref=%u)",
+			a_slot, a_isColor ? "COLOR" : "DEPTH", a_voff,
+			dEn, dWm, dFunc, sEn, sRm, sWm, sFunc, sPass, sFail, sDfail, ref);
+		Log("[PASS] slot=%d pass=%s | DSV(view=%d res=%d %dx%d) | RTVn=%d | VP=(%.0f,%.0f %.0fx%.0f)",
+			a_slot, a_isColor ? "COLOR" : "DEPTH",
+			dsvViewFmt, dsvResFmt, dsvW, dsvH, rtvCount,
+			vp.TopLeftX, vp.TopLeftY, vp.Width, vp.Height);
+
+		for (int i = 0; i < 8; ++i) {
+			if (!rtvs[i]) continue;
+			ID3D11Resource* res = nullptr;
+			rtvs[i]->GetResource(&res);
+			if (res) {
+				D3D11_RESOURCE_DIMENSION dim = D3D11_RESOURCE_DIMENSION_UNKNOWN;
+				res->GetType(&dim);
+				if (dim == D3D11_RESOURCE_DIMENSION_TEXTURE2D) {
+					D3D11_TEXTURE2D_DESC td{};
+					((ID3D11Texture2D*)res)->GetDesc(&td);
+					Log("[PASS] slot=%d pass=%s | RTV[%d] %dx%d fmt=%d",
+						a_slot, a_isColor ? "COLOR" : "DEPTH", i, td.Width, td.Height, (int)td.Format);
+				}
+				res->Release();
+			}
+			rtvs[i]->Release();
+		}
+
+		if (ds) ds->Release();
 	}
 
 	// 一次只读取证：身份 + 索引 + 顶点（POSITION0 = R16G16B16A16_FLOAT @ offset 0）
