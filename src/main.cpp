@@ -804,6 +804,23 @@ float4 main(float4 pos : SV_POSITION) : SV_Target {
 
 	static void STDMETHODCALLTYPE hkDrawIndexed(ID3D11DeviceContext* a_ctx, UINT a_count, UINT a_start, INT a_base)
 	{
+		// 菜单持久剔除（ImGui 勾选，非一次性窗口）
+		if (g_ads.load()) {
+			ID3D11Buffer* vbP = nullptr;
+			UINT strideP = 0, voffP = 0;
+			a_ctx->IAGetVertexBuffers(0, 1, &vbP, &strideP, &voffP);
+			if (vbP) vbP->Release();
+			ID3D11PixelShader* psP = nullptr;
+			a_ctx->PSGetShader(&psP, nullptr, nullptr);
+			const bool colorPass = (psP != nullptr);
+			if (psP) psP->Release();
+
+			if (g_sup144 && a_count == 144 && colorPass) return;
+			if (g_sup384A && a_count == 384 && strideP == 20 && voffP < 10000000u && colorPass) return;
+			if (g_sup384B && a_count == 384 && strideP == 20 && voffP >= 10000000u && colorPass) return;
+			if (g_supNif && a_count == 96 && strideP == 24) return;
+		}
+
 		// Gate A 时间线：F10 窗口内记录 nif(96)/ScopeFade(144)/Lense(384) 的绘制顺序
 		if (s_timelineActive.load() && (a_count == 96 || a_count == 144 || a_count == 384)) {
 			ID3D11PixelShader* psTl = nullptr;
@@ -1376,6 +1393,7 @@ float4 main(float4 pos : SV_POSITION) : SV_Target {
 
 				static bool s_lastF6 = false;
 				const bool f6 = (GetAsyncKeyState(VK_F6) & 0x8000) != 0;
+				if (g_wantShot) { g_wantShot = false; SaveBackbufferBmp(a_sc, devShot, ctxShot, "manual"); }
 				if (f6 && !s_lastF6) {
 					SaveBackbufferBmp(a_sc, devShot, ctxShot, "manual");
 				}
