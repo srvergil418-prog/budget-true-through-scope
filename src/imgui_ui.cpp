@@ -144,10 +144,19 @@ namespace RC
 
 			ImGui::Separator();
 			ImGui::Text("Debug: skip draws (persistent)");
-			ImGui::Checkbox("FORCE Lense:0 visible", &g_forceLense);
-			ImGui::Checkbox("FORCE polySurface22 visible", &g_forcePoly);
-			ImGui::Checkbox("FORCE Mount1 visible", &g_forceMount1);
-			ImGui::Checkbox("FORCE Mount2 visible", &g_forceMount2);
+			// 四个 FORCE 开关互斥：勾一个自动取消其他三个
+			if (ImGui::Checkbox("FORCE Lense:0 visible", &g_forceLense) && g_forceLense) {
+				g_forcePoly = g_forceMount1 = g_forceMount2 = false;
+			}
+			if (ImGui::Checkbox("FORCE polySurface22 visible", &g_forcePoly) && g_forcePoly) {
+				g_forceLense = g_forceMount1 = g_forceMount2 = false;
+			}
+			if (ImGui::Checkbox("FORCE Mount1 visible", &g_forceMount1) && g_forceMount1) {
+				g_forceLense = g_forcePoly = g_forceMount2 = false;
+			}
+			if (ImGui::Checkbox("FORCE Mount2 visible", &g_forceMount2) && g_forceMount2) {
+				g_forceLense = g_forcePoly = g_forceMount1 = false;
+			}
 			ImGui::Checkbox("skip LENSE (both 384)", &g_supLense);
 			ImGui::Checkbox("DIAG red/green split (B=red A=green)", &g_diagSplit);
 			ImGui::Checkbox("skip 144 (ScopeFade)", &g_sup144);
