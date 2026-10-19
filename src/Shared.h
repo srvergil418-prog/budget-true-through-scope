@@ -43,6 +43,12 @@ namespace RC
 	extern float g_lensOffY;
 	extern float g_lensOffZ;
 	extern bool  g_lensEnabled;   // 是否挂载透镜
+	// 调试剔除开关（ImGui 持久勾选）
+	extern bool  g_sup144;        // 不渲染 144 索引（ScopeFade）
+	extern bool  g_sup384A;       // 不渲染 384 候选 A（低 voff）
+	extern bool  g_sup384B;       // 不渲染 384 候选 B（高 voff）
+	extern bool  g_supNif;        // 不渲染自挂 nif（96/stride24）
+	extern bool  g_wantShot;      // 请求截一张图（菜单按钮）
 
 	// ---- overlay（overlay.cpp 实现）----
 	void OverlayDraw(IDXGISwapChain* a_swapChain);
