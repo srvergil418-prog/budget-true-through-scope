@@ -1777,7 +1777,7 @@ float4 main(float4 pos : SV_POSITION) : SV_Target {
 
 		// 回到屏幕层方案（r37 状态）：准星固定在屏幕中心，圆形遮罩可调。
 		// 3D 接管那套因为"索引数无法唯一标识几何体"而误伤天空，已停用。
-		OverlayDraw(a_sc);
+		if (g_screenOverlay) OverlayDraw(a_sc);
 		return s_origPresent(a_sc, a_sync, a_flags);
 	}
 
