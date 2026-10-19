@@ -1124,23 +1124,33 @@ float4 main(float4 pos : SV_POSITION) : SV_Target {
 
 				// 停用 ForceLenseVisible：这一坨黑色就是 Lense:0，本该被 STS 剔除。
 				// 强制显示它会让镜筒内部被黑色筒壁挡住，看不到后面。
-				// 逐节点强制显示：节点自身 + 它自己的祖先链都要 uncull
-				// （父节点被 cull 时，子节点即使 cull=false 也不会渲染）
-				auto ForceShow = [a_pc](const char* a_sub) {
-					auto* n = FindNode(a_pc, a_sub);
+				// Lense:0 是一组节点（Lense + polySurface22 + Mount1 + Mount2 同级）。
+				// uncull 父链会把整组都带出来，所以这里做「互斥显示」：
+				// 勾哪个就只显示哪个，其余三个强制隐藏。
+				auto ShowOnly = [a_pc](const char* a_target) {
+					auto* n = FindNode(a_pc, a_target);
 					if (!n) return;
 					if (n->GetAppCulled()) n->SetAppCulled(false);
+					// 目标自己的祖先链要 uncull
 					auto* p = n->parent;
 					int guard = 0;
 					while (p && guard++ < 10) {
 						if (p->GetAppCulled()) p->SetAppCulled(false);
 						p = p->parent;
 					}
+					// 其余三个强制隐藏
+					const char* others[] = { "Lense", "polySurface22", "Mount1", "Mount2" };
+					for (auto* o : others) {
+						if (strcmp(o, a_target) == 0) continue;
+						if (auto* on = FindNode(a_pc, o)) {
+							if (!on->GetAppCulled()) on->SetAppCulled(true);
+						}
+					}
 				};
-				if (g_forceLense)  ForceShow("Lense");
-				if (g_forcePoly)   ForceShow("polySurface22");
-				if (g_forceMount1) ForceShow("Mount1");
-				if (g_forceMount2) ForceShow("Mount2");
+				if (g_forceLense)  ShowOnly("Lense");
+				else if (g_forcePoly)   ShowOnly("polySurface22");
+				else if (g_forceMount1) ShowOnly("Mount1");
+				else if (g_forceMount2) ShowOnly("Mount2");
 
 				// 透镜只在开镜时可见
 				if (s_lensNode && s_lensNode->GetAppCulled()) {
