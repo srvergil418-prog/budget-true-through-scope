@@ -998,23 +998,26 @@ float4 main(float4 pos : SV_POSITION) : SV_Target {
 		}
 
 		// 状态对照：抓普通几何（非 384）的 DepthStencil 状态，判断 REPLACE/ref=1 是否通用
-		if (g_ads.load() && s_dsProbeCount < 12 && a_count != 384 && a_count != 96) {
-			ID3D11DepthStencilState* dsO = nullptr;
-			UINT refO = 0;
-			a_ctx->OMGetDepthStencilState(&dsO, &refO);
-			if (dsO) {
-				D3D11_DEPTH_STENCIL_DESC dO{};
-				dsO->GetDesc(&dO);
-				ID3D11PixelShader* psO = nullptr;
-				a_ctx->PSGetShader(&psO, nullptr, nullptr);
-				Log("[DS] other#%d count=%u ps=%d | stencilEn=%d func=%d pass=%d wmask=0x%X ref=%u | depthEn=%d",
-					s_dsProbeCount, a_count, psO ? 1 : 0,
-					dO.StencilEnable, (int)dO.FrontFace.StencilFunc, (int)dO.FrontFace.StencilPassOp,
-					dO.StencilWriteMask, refO, dO.DepthEnable);
-				if (psO) psO->Release();
-				dsO->Release();
-				s_dsProbeCount++;
+		if (g_ads.load() && s_dsProbeCount < 24 && a_count != 384 && a_count != 96) {
+			ID3D11PixelShader* psO = nullptr;
+			a_ctx->PSGetShader(&psO, nullptr, nullptr);
+			// 只抓颜色 pass（PS 非空）的普通几何
+			if (psO) {
+				ID3D11DepthStencilState* dsO = nullptr;
+				UINT refO = 0;
+				a_ctx->OMGetDepthStencilState(&dsO, &refO);
+				if (dsO) {
+					D3D11_DEPTH_STENCIL_DESC dO{};
+					dsO->GetDesc(&dO);
+					Log("[DSC] color#%d count=%u | stencilEn=%d func=%d pass=%d wmask=0x%X ref=%u | depthEn=%d",
+						s_dsProbeCount, a_count,
+						dO.StencilEnable, (int)dO.FrontFace.StencilFunc, (int)dO.FrontFace.StencilPassOp,
+						dO.StencilWriteMask, refO, dO.DepthEnable);
+					s_dsProbeCount++;
+					dsO->Release();
+				}
 			}
+			psO->Release();
 		}
 
 		// 红/绿诊断：把 384（Lense）拆成两片分别染色，确定哪片是目镜
