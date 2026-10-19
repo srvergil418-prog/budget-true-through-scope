@@ -1050,6 +1050,7 @@ float4 main(float4 pos : SV_POSITION) : SV_Target {
 		// 候选 Draw 记录：无条件记录所有 384/start=0 的调用（含是否被十字接管）
 		if (g_ads.load() && a_count == 384 && a_start == 0) {
 			static int s_candLog = 0;
+	static int s_candFrame = 0;
 			if (s_candLog < 20) {
 				s_candLog++;
 				ID3D11Buffer* vbC = nullptr;
@@ -1064,10 +1065,9 @@ float4 main(float4 pos : SV_POSITION) : SV_Target {
 				ID3D11PixelShader* psC = nullptr;
 				a_ctx->PSGetShader(&psC, nullptr, nullptr);
 				const bool crossWillTake = g_diagCross && s_psCross && s_cbCross && g_ads.load() && (psC != nullptr) && (strideC == 20);
-				Log("[DRAW-CAND] #%d count=%u start=%u base=%d | vb=%p stride=%u voff=%u | ib=%p fmt=%d ioff=%u | ps=%p | cross=%s",
-					s_candLog, a_count, a_start, a_base, (void*)vbC, strideC, voffC,
-					(void*)ibC, (int)fmtC, ioffC, (void*)psC,
-					crossWillTake ? "YES" : "NO");
+				Log("[DRAW-CAND] f%d#%d count=%u start=%u base=%d | stride=%u voff=%u | ioff=%u | ps=%s | cross=%s",
+					s_candFrame, s_candLog, a_count, a_start, a_base, strideC, voffC, ioffC,
+					psC ? "PS" : "null", crossWillTake ? "YES" : "NO");
 				if (psC) psC->Release();
 			}
 		}
@@ -1776,6 +1776,8 @@ float4 main(float4 pos : SV_POSITION) : SV_Target {
 		ImGui_Render(a_sc);
 
 		// 每帧摘要
+		s_candFrame++;
+		s_candLog = 0;
 		if (s_frameStats && s_frameDraws > 0) {
 			static int s_frameNo = 0;
 			if (s_frameNo < 60) {
