@@ -1124,7 +1124,7 @@ float4 main(float4 pos : SV_POSITION) : SV_Target {
 
 				// 停用 ForceLenseVisible：这一坨黑色就是 Lense:0，本该被 STS 剔除。
 				// 强制显示它会让镜筒内部被黑色筒壁挡住，看不到后面。
-				// ForceLenseVisible(a_pc);
+				if (g_forceLense) ForceLenseVisible(a_pc);
 
 				// 透镜只在开镜时可见
 				if (s_lensNode && s_lensNode->GetAppCulled()) {
