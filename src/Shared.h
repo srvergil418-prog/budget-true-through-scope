@@ -50,6 +50,8 @@ namespace RC
 	extern bool  g_supNif;        // 不渲染自挂 nif（96/stride24）
 	extern bool  g_supLense;      // 不渲染 Lense 的两个 384 draw（A+B 一起）
 	extern bool  g_diagSplit;     // 红/绿诊断：把 Lense 拆成两片分别染色
+	extern bool  g_diagBOnly;     // 只画 B 组（index 0..191）染红
+	extern bool  g_diagAOnly;     // 只画 A 组（index 192..383）染绿
 	extern bool  g_forceLense;    // 强制 Lense:0 可见（覆盖 STS 剔除）
 	// 逐节点强制显示 ScopeNormal 下的子节点（默认被 STS 剔除）
 	extern bool  g_forcePoly;     // polySurface22
