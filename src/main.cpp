@@ -1113,8 +1113,19 @@ float4 main(float4 pos : SV_POSITION) : SV_Target {
 			const bool isA = (voffTgt == 7670272u);
 			const bool isB = (voffTgt == 12181248u);
 			const int tgt = g_crossTarget;
-			const bool wantThis = (tgt == 0) || (tgt == 1 && isA) || (tgt == 2 && isB);
-			if (!wantThis) {
+			// 0=both  1=onlyA  2=onlyB  3=none
+			// 4=A画十字+B跳过  5=B画十字+A跳过
+			const bool wantCross = (tgt == 0) || (tgt == 1 && isA) || (tgt == 2 && isB)
+				|| (tgt == 4 && isA) || (tgt == 5 && isB);
+			const bool skipMe = (tgt == 4 && isB) || (tgt == 5 && isA);
+
+			if (skipMe) {
+				// 完全跳过这次绘制（不画原始黑材质，也不画十字）
+				static int s_skipLog = 0;
+				if (s_skipLog < 6) { s_skipLog++; Log("[CROSS] skipped voff=%u (mode %d)", voffTgt, tgt); }
+				return;
+			}
+			if (!wantCross) {
 				// 原样转发（不接管）
 				s_origDrawIndexed(a_ctx, a_count, a_start, a_base);
 				return;
