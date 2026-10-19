@@ -702,14 +702,8 @@ cbuffer Cb : register(b0) {
 Texture2D    gTex  : register(t0);
 SamplerState gSamp : register(s0);
 float4 main(float4 pos : SV_POSITION) : SV_Target {
-    // 圆盘范围内采样准星贴图；范围外直接丢弃（早期这里返回半透明绿做定位，
-    // 那会糊到天空上，已改成全透明）。
-    float2 uv = (pos.xy - float2(centerX, centerY)) / size + 0.5;
-    if (uv.x < 0.0 || uv.x > 1.0 || uv.y < 0.0 || uv.y > 1.0) {
-        discard;
-    }
-    float4 c = gTex.Sample(gSamp, uv);
-    return float4(c.rgb, c.a * alpha);
+    // === 临时诊断：整片纯红，不做任何 UV 判断，用来看 nif 到底覆盖屏幕哪里 ===
+    return float4(1.0, 0.0, 0.0, 1.0);
 }
 )";
 
