@@ -363,6 +363,7 @@ namespace RC
 	static std::atomic<bool> s_timelineActive{ false };
 	static std::atomic<int>  s_timelineFrames{ 0 };
 	static int s_timelineSeq = 0;
+	static int s_dsProbeCount = 0;
 
 	// ======================= 红/绿诊断（确定哪片是目镜） =======================
 	// 把 Lense 的 384 索引拆成两次绘制：B(index 0..191) 染红，A(index 192..383) 染绿。
@@ -993,6 +994,26 @@ float4 main(float4 pos : SV_POSITION) : SV_Target {
 				}
 				a_ctx->PSSetShader(nullptr, nullptr, 0);
 				return;
+			}
+		}
+
+		// 状态对照：抓普通几何（非 384）的 DepthStencil 状态，判断 REPLACE/ref=1 是否通用
+		if (g_ads.load() && s_dsProbeCount < 12 && a_count != 384 && a_count != 96) {
+			ID3D11DepthStencilState* dsO = nullptr;
+			UINT refO = 0;
+			a_ctx->OMGetDepthStencilState(&dsO, &refO);
+			if (dsO) {
+				D3D11_DEPTH_STENCIL_DESC dO{};
+				dsO->GetDesc(&dO);
+				ID3D11PixelShader* psO = nullptr;
+				a_ctx->PSGetShader(&psO, nullptr, nullptr);
+				Log("[DS] other#%d count=%u ps=%d | stencilEn=%d func=%d pass=%d wmask=0x%X ref=%u | depthEn=%d",
+					s_dsProbeCount, a_count, psO ? 1 : 0,
+					dO.StencilEnable, (int)dO.FrontFace.StencilFunc, (int)dO.FrontFace.StencilPassOp,
+					dO.StencilWriteMask, refO, dO.DepthEnable);
+				if (psO) psO->Release();
+				dsO->Release();
+				s_dsProbeCount++;
 			}
 		}
 
