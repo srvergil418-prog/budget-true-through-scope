@@ -384,6 +384,7 @@ namespace RC
 	static ID3D11PixelShader* s_psCross = nullptr;   // 屏幕中心十字（用 SV_Position）
 	static ID3D11Buffer* s_cbCross = nullptr;
 	static ID3D11DepthStencilState* s_dsNoStencil = nullptr;
+	static ID3D11DepthStencilState* s_dsNoDepthWrite = nullptr;   // r166: 不写深度
 
 	struct CrossCb { float centerX, centerY, halfW, halfH; };
 	static ID3D11PixelShader* s_psGreen = nullptr;
@@ -445,7 +446,11 @@ float4 main(float4 pos : SV_POSITION) : SV_Target {
 		dsC.StencilEnable = FALSE;
 		a_dev->CreateDepthStencilState(&dsC, &s_dsNoStencil);
 
-		Log("[DIAG] cross ps=%d cb=%d dsNoStencil=%d", s_psCross ? 1 : 0, s_cbCross ? 1 : 0, s_dsNoStencil ? 1 : 0);
+		// r166: 用于替换 Lense 深度预 pass 的状态 —— 深度测试照常，但不写深度
+		a_dev->CreateDepthStencilState(&dsC, &s_dsNoDepthWrite);
+
+		Log("[DIAG] cross ps=%d cb=%d dsNoStencil=%d dsNoDepthWrite=%d",
+			s_psCross ? 1 : 0, s_cbCross ? 1 : 0, s_dsNoStencil ? 1 : 0, s_dsNoDepthWrite ? 1 : 0);
 	}
 
 	// ======================= 受控抑制实验（身份验证） =======================
@@ -1124,6 +1129,35 @@ float4 main(float4 pos : SV_POSITION) : SV_Target {
 				}
 			}
 			if (vbP) vbP->Release();
+		}
+
+		// ======================= r166: 深度预 pass 不写深度（验证深度因果） =======================
+		// 假设：深度预 pass 写入 Lense 深度 → 目镜区域内的场景被深度测试拒绝 → 全黑。
+		// 实验：只把这条 pass 的 DepthWriteMask 改成 0，其余全部不动。
+		if (g_skipDepthWrite && g_ads.load() && a_count == 384 && a_start == 0) {
+			ID3D11PixelShader* psDW = nullptr;
+			a_ctx->PSGetShader(&psDW, nullptr, nullptr);
+			const bool isDepthDW = (psDW == nullptr);
+			if (psDW) psDW->Release();
+
+			ID3D11Buffer* vbDW = nullptr;
+			UINT strideDW = 0, voffDW = 0;
+			a_ctx->IAGetVertexBuffers(0, 1, &vbDW, &strideDW, &voffDW);
+			if (vbDW) vbDW->Release();
+
+			if (isDepthDW && strideDW == 20 && s_dsNoDepthWrite) {
+				ID3D11DepthStencilState* oldDS = nullptr;
+				UINT oldRef = 0;
+				a_ctx->OMGetDepthStencilState(&oldDS, &oldRef);
+				a_ctx->OMSetDepthStencilState(s_dsNoDepthWrite, oldRef);
+				s_origDrawIndexed(a_ctx, a_count, a_start, a_base);
+				if (oldDS) { a_ctx->OMSetDepthStencilState(oldDS, oldRef); oldDS->Release(); }
+				else { a_ctx->OMSetDepthStencilState(nullptr, oldRef); }
+
+				static int s_dwLog = 0;
+				if (s_dwLog < 4) { s_dwLog++; Log("[DW] depth-write skipped for 384 depth pass (voff=%u)", voffDW); }
+				return;
+			}
 		}
 
 		// 全帧统计：每帧所有 draw 的 stencil 状态
