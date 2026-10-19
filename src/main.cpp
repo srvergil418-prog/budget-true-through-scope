@@ -960,6 +960,30 @@ float4 main(float4 pos : SV_POSITION) : SV_Target {
 			if (ibTl) ibTl->Release();
 		}
 
+		// 隔离诊断：B-only / A-only，每次只画一片，验证各自独立可见性
+		if ((g_diagBOnly || g_diagAOnly) && a_count == 384 && g_ads.load()) {
+			ID3D11PixelShader* psIso = nullptr;
+			a_ctx->PSGetShader(&psIso, nullptr, nullptr);
+			const bool colorIso = (psIso != nullptr);
+			if (psIso) psIso->Release();
+			if (colorIso && s_psRed && s_psGreen) {
+				static int s_isoLog = 0;
+				if (s_isoLog < 6) {
+					s_isoLog++;
+					Log("[DIAG] isolate %s start=%u base=%d", g_diagBOnly ? "B(red)" : "A(green)", a_start, a_base);
+				}
+				if (g_diagBOnly) {
+					a_ctx->PSSetShader(s_psRed, nullptr, 0);
+					s_origDrawIndexed(a_ctx, 192, a_start, a_base);
+				} else {
+					a_ctx->PSSetShader(s_psGreen, nullptr, 0);
+					s_origDrawIndexed(a_ctx, 192, a_start + 192, a_base);
+				}
+				a_ctx->PSSetShader(nullptr, nullptr, 0);
+				return;
+			}
+		}
+
 		// 红/绿诊断：把 384（Lense）拆成两片分别染色，确定哪片是目镜
 		if (g_diagSplit && a_count == 384 && g_ads.load()) {
 			ID3D11PixelShader* psD = nullptr;
