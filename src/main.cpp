@@ -1103,6 +1103,24 @@ float4 main(float4 pos : SV_POSITION) : SV_Target {
 		}
 
 		// 十字诊断：用 B 组几何的投影覆盖范围限制准星（不写 stencil）
+		// 先取 voff 判断是否为目标 draw（g_crossTarget 控制接管哪条）
+		UINT voffTgt = 0;
+		if (g_diagCross && a_count == 384 && a_start == 0 && g_ads.load() && s_psCross && s_cbCross) {
+			ID3D11Buffer* vbT = nullptr;
+			UINT strideT = 0;
+			a_ctx->IAGetVertexBuffers(0, 1, &vbT, &strideT, &voffTgt);
+			if (vbT) vbT->Release();
+			const bool isA = (voffTgt == 7670272u);
+			const bool isB = (voffTgt == 12181248u);
+			const int tgt = g_crossTarget;
+			const bool wantThis = (tgt == 0) || (tgt == 1 && isA) || (tgt == 2 && isB);
+			if (!wantThis) {
+				// 原样转发（不接管）
+				s_origDrawIndexed(a_ctx, a_count, a_start, a_base);
+				return;
+			}
+		}
+
 		if (g_diagCross && a_count == 384 && a_start == 0 && g_ads.load() && s_psCross && s_cbCross) {
 			ID3D11PixelShader* psX = nullptr;
 			a_ctx->PSGetShader(&psX, nullptr, nullptr);
