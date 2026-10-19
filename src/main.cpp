@@ -1243,6 +1243,29 @@ float4 main(float4 pos : SV_POSITION) : SV_Target {
 					}
 				}
 
+				// 每次 ADS 进入时列出 ScopeNormal 支的全部子节点（物镜在这里）
+				if (!s_lastADS) {
+					if (auto* normalNode = FindNode(a_pc, "ScopeNormal")) {
+						if (auto* nn = normalNode->IsNode()) {
+							Log("[NORMAL] ScopeNormal children (%u):", (unsigned)nn->children.size());
+							int ci = 0;
+							for (auto& child : nn->children) {
+								if (!child) { ++ci; continue; }
+								auto* tri = child->IsTriShape();
+								Log("[NORMAL]   [%d] %s tri=%u vert=%u cull=%d world=(%.2f,%.2f,%.2f)",
+									ci, child->name.c_str(),
+									tri ? tri->numTriangles : 0u,
+									tri ? (unsigned)tri->numVertices : 0u,
+									child->GetAppCulled() ? 1 : 0,
+									child->world.translate.x, child->world.translate.y, child->world.translate.z);
+								++ci;
+							}
+						}
+					} else {
+						Log("[NORMAL] ScopeNormal NOT FOUND");
+					}
+				}
+
 				if (!s_lastADS) {
 					// 进入开镜：读遮罩索引数 + 挂上覆盖"洞"的圆盘透镜
 					s_lensIndexCount = 0;
