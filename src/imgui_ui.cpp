@@ -170,7 +170,7 @@ namespace RC
 			if (ImGui::Checkbox("DIAG A-only (green)", &g_diagAOnly) && g_diagAOnly) g_diagBOnly = false;
 			ImGui::Checkbox("DIAG CROSS (B-geo + screen center)", &g_diagCross);
 			ImGui::Checkbox("screen overlay reticle (old)", &g_screenOverlay);
-			ImGui::Combo("cross target", &g_crossTarget, "both\0only voffA(7670272)\0only voffB(12181248)\0none\0");
+			ImGui::Combo("cross target", &g_crossTarget, "both\0only voffA\0only voffB\0none\0A-cross+B-skip\0B-cross+A-skip\0");
 			ImGui::SliderFloat("cross offX", &g_crossOffX, -400.0f, 400.0f, "%.0f");
 			ImGui::SliderFloat("cross offY", &g_crossOffY, -400.0f, 400.0f, "%.0f");
 			ImGui::Checkbox("skip 144 (ScopeFade)", &g_sup144);
