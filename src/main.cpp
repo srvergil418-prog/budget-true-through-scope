@@ -371,6 +371,7 @@ namespace RC
 	static std::atomic<bool> s_suppressActive{ false };
 	static std::atomic<int>  s_suppressFrames{ 0 };
 	static std::atomic<int>  s_suppressSkipped{ 0 };
+	static std::atomic<int>  s_suppressWhich{ 0 };   // 0=144模式 1=384低voff 2=384高voff
 
 	static bool s_fadeCaptured = false;
 
@@ -846,25 +847,66 @@ float4 main(float4 pos : SV_POSITION) : SV_Target {
 			ID3D11DepthStencilState* dsTl = nullptr;
 			UINT stencilRefTl = 0;
 			a_ctx->OMGetDepthStencilState(&dsTl, &stencilRefTl);
-			int dstencilEnable = -1, dcmp = -1;
+			// GPT 指正：stencilRef 只是引用值，不等于 StencilEnable。这里完整输出描述。
+			int stEnable = -1, stReadMask = -1, stWriteMask = -1;
+			int stFrontFunc = -1, stFrontPassOp = -1, stBackFunc = -1, stBackPassOp = -1;
+			int dEnable = -1, dWriteMask = -1, dFunc = -1;
 			if (dsTl) {
 				D3D11_DEPTH_STENCIL_DESC dsd{};
 				dsTl->GetDesc(&dsd);
-				dstencilEnable = dsd.StencilEnable ? 1 : 0;
-				dcmp = (int)dsd.DepthFunc;
+				stEnable = dsd.StencilEnable ? 1 : 0;
+				stReadMask = dsd.StencilReadMask;
+				stWriteMask = dsd.StencilWriteMask;
+				stFrontFunc = (int)dsd.FrontFace.StencilFunc;
+				stFrontPassOp = (int)dsd.FrontFace.StencilPassOp;
+				stBackFunc = (int)dsd.BackFace.StencilFunc;
+				stBackPassOp = (int)dsd.BackFace.StencilPassOp;
+				dEnable = dsd.DepthEnable ? 1 : 0;
+				dWriteMask = (int)dsd.DepthWriteMask;
+				dFunc = (int)dsd.DepthFunc;
 				dsTl->Release();
 			}
 
-			Log("[TL] #%d count=%u stride=%u ps=%p vs=%p il=%p | dsvFmt(view=%d res=%d) stencil=%d depthFunc=%d voff=%u ioff=%u",
-				s_timelineSeq++, a_count, strideTl,
+			Log("[TL] #%d count=%u stride=%u voff=%u ioff=%u ps=%p vs=%p il=%p | dsViewFmt=%d dsResFmt=%d ref=%u",
+				s_timelineSeq++, a_count, strideTl, voffTl, ioffTl,
 				(void*)psTl, (void*)vsTl, (void*)ilTl,
-				dsvViewFmt, dsvResFmt, dstencilEnable, dcmp, voffTl, ioffTl);
+				dsvViewFmt, dsvResFmt, stencilRefTl);
+			Log("[TL]    stencilEnable=%d readMask=0x%X writeMask=0x%X frontFunc=%d frontPass=%d backFunc=%d backPass=%d | depthEnable=%d depthWrite=%d depthFunc=%d",
+				stEnable, stReadMask, stWriteMask, stFrontFunc, stFrontPassOp, stBackFunc, stBackPassOp,
+				dEnable, dWriteMask, dFunc);
 
 			if (psTl) psTl->Release();
 			if (vsTl) vsTl->Release();
 			if (ilTl) ilTl->Release();
 			if (vbTl) vbTl->Release();
 			if (ibTl) ibTl->Release();
+		}
+
+		// 实验 B：分别抑制两个 384 候选（按 voff 区分），用于身份辨认
+		//   s_suppressWhich == 1 → 只抑制 voff < 10000000 的 384
+		//   s_suppressWhich == 2 → 只抑制 voff >= 10000000 的 384
+		if (s_suppressActive.load() && a_count == 384 && g_ads.load()) {
+			ID3D11Buffer* vbB = nullptr;
+			UINT strideB = 0, voffB = 0;
+			a_ctx->IAGetVertexBuffers(0, 1, &vbB, &strideB, &voffB);
+			if (vbB) vbB->Release();
+			ID3D11PixelShader* psB = nullptr;
+			a_ctx->PSGetShader(&psB, nullptr, nullptr);
+			const bool isColor = (psB != nullptr);
+			if (psB) psB->Release();
+			if (isColor && strideB == 20) {
+				const int which = s_suppressWhich.load();
+				const bool match = (which == 1 && voffB < 10000000u) || (which == 2 && voffB >= 10000000u);
+				if (match) {
+					const int left = s_suppressFrames.fetch_sub(1) - 1;
+					s_suppressSkipped.fetch_add(1);
+					if (left <= 0) {
+						s_suppressActive.store(false);
+						Log("[SUPPRESS] 384 window closed, skipped=%d voff=%u", s_suppressSkipped.load(), voffB);
+					}
+					return;
+				}
+			}
 		}
 
 		// 受控抑制：F8 启动约 60 帧窗口，只跳过「144 索引 + PS 非空 + stride 20」
@@ -1193,10 +1235,34 @@ float4 main(float4 pos : SV_POSITION) : SV_Target {
 		if (f8 && !s_lastF8) {
 			s_suppressFrames.store(60);
 			s_suppressSkipped.store(0);
+			s_suppressWhich.store(0);
 			s_suppressActive.store(true);
-			Log("[SUPPRESS] armed: 60-frame window for 144-index color draw");
+			Log("[SUPPRESS] armed: 144-index color draw (ScopeFade)");
 		}
 		s_lastF8 = f8;
+
+		// F11：抑制低 voff 的 384（候选 A）；F12：抑制高 voff 的 384（候选 B）
+		static bool s_lastF11 = false;
+		const bool f11 = (GetAsyncKeyState(VK_F11) & 0x8000) != 0;
+		if (f11 && !s_lastF11) {
+			s_suppressFrames.store(60);
+			s_suppressSkipped.store(0);
+			s_suppressWhich.store(1);
+			s_suppressActive.store(true);
+			Log("[SUPPRESS] armed: 384 candidate A (low voff)");
+		}
+		s_lastF11 = f11;
+
+		static bool s_lastF12 = false;
+		const bool f12 = (GetAsyncKeyState(VK_F12) & 0x8000) != 0;
+		if (f12 && !s_lastF12) {
+			s_suppressFrames.store(60);
+			s_suppressSkipped.store(0);
+			s_suppressWhich.store(2);
+			s_suppressActive.store(true);
+			Log("[SUPPRESS] armed: 384 candidate B (high voff)");
+		}
+		s_lastF12 = f12;
 
 		// F10：启动 Gate A 时间线诊断窗口（避开游戏的 F5/F9 快存快读）（60 帧）
 		static bool s_lastF9 = false;
