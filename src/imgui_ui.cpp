@@ -163,7 +163,8 @@ namespace RC
 			ImGui::Checkbox("skip LENSE (both 384)", &g_supLense);
 			ImGui::Checkbox("DIAG red/green split (B=red A=green)", &g_diagSplit);
 			if (ImGui::Checkbox("DIAG B-only (red)", &g_diagBOnly) && g_diagBOnly) g_diagAOnly = false;
-			if (ImGui::Checkbox("DIAG A-only (green)", &g_diagAOnly) && g_diagAOnly) g_diagBOnly = false;`r`n`t`t`tImGui::Checkbox("DIAG CROSS (B-geo + screen center)", &g_diagCross);
+			if (ImGui::Checkbox("DIAG A-only (green)", &g_diagAOnly) && g_diagAOnly) g_diagBOnly = false;
+			ImGui::Checkbox("DIAG CROSS (B-geo + screen center)", &g_diagCross);
 			ImGui::Checkbox("skip 144 (ScopeFade)", &g_sup144);
 			ImGui::Checkbox("skip 384 A (low voff)", &g_sup384A);
 			ImGui::Checkbox("skip 384 B (high voff)", &g_sup384B);
