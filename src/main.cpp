@@ -1115,18 +1115,29 @@ float4 main(float4 pos : SV_POSITION) : SV_Target {
 			const int tgt = g_crossTarget;
 			// 0=both  1=onlyA  2=onlyB  3=none
 			// 4=A画十字+B跳过  5=B画十字+A跳过
+			// 先判断是不是颜色 pass（深度预 pass 的 ps 为空，必须放行）
+			ID3D11PixelShader* psPre = nullptr;
+			a_ctx->PSGetShader(&psPre, nullptr, nullptr);
+			const bool isColorPass = (psPre != nullptr);
+			if (psPre) psPre->Release();
+
+			if (!isColorPass) {
+				// 深度预 pass：一律原样转发，不接管也不跳过
+				s_origDrawIndexed(a_ctx, a_count, a_start, a_base);
+				return;
+			}
+
 			const bool wantCross = (tgt == 0) || (tgt == 1 && isA) || (tgt == 2 && isB)
 				|| (tgt == 4 && isA) || (tgt == 5 && isB);
 			const bool skipMe = (tgt == 4 && isB) || (tgt == 5 && isA);
 
 			if (skipMe) {
-				// 完全跳过这次绘制（不画原始黑材质，也不画十字）
+				// 只跳过颜色 pass（不画原始黑材质）；深度已在上方放行
 				static int s_skipLog = 0;
-				if (s_skipLog < 6) { s_skipLog++; Log("[CROSS] skipped voff=%u (mode %d)", voffTgt, tgt); }
+				if (s_skipLog < 6) { s_skipLog++; Log("[CROSS] skipped color voff=%u (mode %d)", voffTgt, tgt); }
 				return;
 			}
 			if (!wantCross) {
-				// 原样转发（不接管）
 				s_origDrawIndexed(a_ctx, a_count, a_start, a_base);
 				return;
 			}
