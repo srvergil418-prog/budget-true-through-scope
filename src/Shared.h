@@ -65,6 +65,11 @@ namespace RC
 	extern bool  g_forceMount2;
 	extern bool  g_wantShot;      // 请求截一张图（菜单按钮）
 
+	// ---- r169 两阶段：目镜 mask ----
+	extern bool  g_maskEnabled;   // 在 Lense 颜色 pass 里写 R8 mask
+	extern bool  g_maskUse;       // overlay 采样 mask 裁剪准星
+	extern ID3D11ShaderResourceView* g_maskSRV;   // overlay 读取用（main.cpp 创建）
+
 	// ---- overlay（overlay.cpp 实现）----
 	void OverlayDraw(IDXGISwapChain* a_swapChain);
 	void OverlayShutdown();
