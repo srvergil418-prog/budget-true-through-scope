@@ -1124,7 +1124,26 @@ float4 main(float4 pos : SV_POSITION) : SV_Target {
 
 				// 停用 ForceLenseVisible：这一坨黑色就是 Lense:0，本该被 STS 剔除。
 				// 强制显示它会让镜筒内部被黑色筒壁挡住，看不到后面。
-				if (g_forceLense) ForceLenseVisible(a_pc);
+				// 逐节点强制显示（默认 STS 会剔除它们）
+				if (g_forceLense || g_forcePoly || g_forceMount1 || g_forceMount2) {
+					auto* root3d = a_pc->Get3D();
+					if (root3d) {
+						if (g_forceLense) { if (auto* n = FindNode(a_pc, "Lense")) n->SetAppCulled(false); }
+						if (g_forcePoly)  { if (auto* n = FindNode(a_pc, "polySurface22")) n->SetAppCulled(false); }
+						if (g_forceMount1){ if (auto* n = FindNode(a_pc, "Mount1")) n->SetAppCulled(false); }
+						if (g_forceMount2){ if (auto* n = FindNode(a_pc, "Mount2")) n->SetAppCulled(false); }
+						// 父链也要取消（ScopeNormal 被剔除时子节点不会渲染）
+						auto* p = root3d->GetObjectByName("Weapon");
+						if (p) {
+							auto* pn = p->IsNode();
+							int guard = 0;
+							while (pn && guard++ < 8) {
+								if (pn->GetAppCulled()) pn->SetAppCulled(false);
+								pn = pn->parent ? pn->parent->IsNode() : nullptr;
+							}
+						}
+					}
+				}
 
 				// 透镜只在开镜时可见
 				if (s_lensNode && s_lensNode->GetAppCulled()) {
