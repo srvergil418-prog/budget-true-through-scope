@@ -35,6 +35,8 @@ namespace RC
 	bool  g_diagCross = false;
 	bool  g_screenOverlay = true;
 	bool  g_skipDepthWrite = false;
+	bool  g_maskEnabled = false;
+	bool  g_maskUse = false;
 	int   g_crossTarget = 0;
 	float g_crossOffX = 0.0f;
 	float g_crossOffY = 0.0f;
@@ -172,6 +174,8 @@ namespace RC
 			ImGui::Checkbox("DIAG CROSS (B-geo + screen center)", &g_diagCross);
 			ImGui::Checkbox("screen overlay reticle (old)", &g_screenOverlay);
 			ImGui::Checkbox("SKIP DEPTH WRITE (r166 test)", &g_skipDepthWrite);
+			ImGui::Checkbox("MASK write (r169 two-stage)", &g_maskEnabled);
+			ImGui::Checkbox("MASK clip reticle", &g_maskUse);
 			ImGui::Combo("cross target", &g_crossTarget, "both\0only voffA\0only voffB\0none\0A-cross+B-skip\0B-cross+A-skip\0");
 			ImGui::SliderFloat("cross offX", &g_crossOffX, -400.0f, 400.0f, "%.0f");
 			ImGui::SliderFloat("cross offY", &g_crossOffY, -400.0f, 400.0f, "%.0f");
