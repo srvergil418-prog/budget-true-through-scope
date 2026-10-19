@@ -48,6 +48,8 @@ namespace RC
 	extern bool  g_sup384A;       // 不渲染 384 候选 A（低 voff）
 	extern bool  g_sup384B;       // 不渲染 384 候选 B（高 voff）
 	extern bool  g_supNif;        // 不渲染自挂 nif（96/stride24）
+	extern bool  g_supLense;      // 不渲染 Lense 的两个 384 draw（A+B 一起）
+	extern bool  g_forceLense;    // 强制 Lense:0 可见（覆盖 STS 剔除）
 	extern bool  g_wantShot;      // 请求截一张图（菜单按钮）
 
 	// ---- overlay（overlay.cpp 实现）----
