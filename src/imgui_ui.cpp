@@ -34,6 +34,8 @@ namespace RC
 	bool  g_diagBOnly = false;
 	bool  g_diagCross = false;
 	bool  g_screenOverlay = true;
+	float g_crossOffX = 0.0f;
+	float g_crossOffY = 0.0f;
 	bool  g_diagAOnly = false;
 	bool  g_forceLense = false;
 	bool  g_forcePoly = false;
@@ -167,6 +169,8 @@ namespace RC
 			if (ImGui::Checkbox("DIAG A-only (green)", &g_diagAOnly) && g_diagAOnly) g_diagBOnly = false;
 			ImGui::Checkbox("DIAG CROSS (B-geo + screen center)", &g_diagCross);
 			ImGui::Checkbox("screen overlay reticle (old)", &g_screenOverlay);
+			ImGui::SliderFloat("cross offX", &g_crossOffX, -400.0f, 400.0f, "%.0f");
+			ImGui::SliderFloat("cross offY", &g_crossOffY, -400.0f, 400.0f, "%.0f");
 			ImGui::Checkbox("skip 144 (ScopeFade)", &g_sup144);
 			ImGui::Checkbox("skip 384 A (low voff)", &g_sup384A);
 			ImGui::Checkbox("skip 384 B (high voff)", &g_sup384B);
