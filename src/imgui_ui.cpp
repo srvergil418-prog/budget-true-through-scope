@@ -25,6 +25,11 @@ namespace RC
 	float g_lensOffY = 0.0f;
 	float g_lensOffZ = 10.0f;
 	bool  g_lensEnabled = true;
+	bool  g_sup144 = false;
+	bool  g_sup384A = false;
+	bool  g_sup384B = false;
+	bool  g_supNif = false;
+	bool  g_wantShot = false;
 
 	static bool s_init = false;
 	static bool s_menu = false;
@@ -130,6 +135,14 @@ namespace RC
 			Row("mask Y", &g_maskOffY, 0.0f, 1.0f, -2000.0f, 2000.0f);
 			Row("radius", &g_maskRadius, 324.0f, 5.0f, 10.0f, 2000.0f);
 			Row("radius x (auto)", &g_maskRadiusScale, 1.0f, 0.05f, 0.1f, 5.0f);
+
+			ImGui::Separator();
+			ImGui::Text("Debug: skip draws (persistent)");
+			ImGui::Checkbox("skip 144 (ScopeFade)", &g_sup144);
+			ImGui::Checkbox("skip 384 A (low voff)", &g_sup384A);
+			ImGui::Checkbox("skip 384 B (high voff)", &g_sup384B);
+			ImGui::Checkbox("skip NIF (96/stride24)", &g_supNif);
+			if (ImGui::Button("save screenshot")) g_wantShot = true;
 
 			ImGui::Separator();
 			ImGui::Text("Camera FOV");
