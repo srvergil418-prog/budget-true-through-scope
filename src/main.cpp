@@ -358,7 +358,7 @@ namespace RC
 	// 遵守约束：不 Map 游戏缓冲（用 staging + CopyResource）、只捕获一次、
 	// 不逐帧、不改变任何渲染状态、释放所有 COM 引用。
 	// ======================= Gate A：同帧 Draw 时间线诊断 =======================
-	// F9 启动约 60 帧窗口，记录 nif(96) / ScopeFade(144) / Lense(384) 三个候选的
+	// F10 启动约 60 帧窗口，记录 nif(96) / ScopeFade(144) / Lense(384) 三个候选的
 	// 绘制顺序、pass 归属、DSV 完整信息。只读，不改任何绘制。
 	static std::atomic<bool> s_timelineActive{ false };
 	static std::atomic<int>  s_timelineFrames{ 0 };
@@ -803,7 +803,7 @@ float4 main(float4 pos : SV_POSITION) : SV_Target {
 
 	static void STDMETHODCALLTYPE hkDrawIndexed(ID3D11DeviceContext* a_ctx, UINT a_count, UINT a_start, INT a_base)
 	{
-		// Gate A 时间线：F9 窗口内记录 nif(96)/ScopeFade(144)/Lense(384) 的绘制顺序
+		// Gate A 时间线：F10 窗口内记录 nif(96)/ScopeFade(144)/Lense(384) 的绘制顺序
 		if (s_timelineActive.load() && (a_count == 96 || a_count == 144 || a_count == 384)) {
 			ID3D11PixelShader* psTl = nullptr;
 			ID3D11VertexShader* vsTl = nullptr;
@@ -1198,9 +1198,9 @@ float4 main(float4 pos : SV_POSITION) : SV_Target {
 		}
 		s_lastF8 = f8;
 
-		// F9：启动 Gate A 时间线诊断窗口（60 帧）
+		// F10：启动 Gate A 时间线诊断窗口（避开游戏的 F5/F9 快存快读）（60 帧）
 		static bool s_lastF9 = false;
-		const bool f9 = (GetAsyncKeyState(VK_F9) & 0x8000) != 0;
+		const bool f9 = (GetAsyncKeyState(VK_F10) & 0x8000) != 0;
 		if (f9 && !s_lastF9) {
 			s_timelineFrames.store(60);
 			s_timelineActive.store(true);
