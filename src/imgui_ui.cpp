@@ -33,6 +33,7 @@ namespace RC
 	bool  g_diagSplit = false;
 	bool  g_diagBOnly = false;
 	bool  g_diagCross = false;
+	bool  g_screenOverlay = true;
 	bool  g_diagAOnly = false;
 	bool  g_forceLense = false;
 	bool  g_forcePoly = false;
@@ -165,6 +166,7 @@ namespace RC
 			if (ImGui::Checkbox("DIAG B-only (red)", &g_diagBOnly) && g_diagBOnly) g_diagAOnly = false;
 			if (ImGui::Checkbox("DIAG A-only (green)", &g_diagAOnly) && g_diagAOnly) g_diagBOnly = false;
 			ImGui::Checkbox("DIAG CROSS (B-geo + screen center)", &g_diagCross);
+			ImGui::Checkbox("screen overlay reticle (old)", &g_screenOverlay);
 			ImGui::Checkbox("skip 144 (ScopeFade)", &g_sup144);
 			ImGui::Checkbox("skip 384 A (low voff)", &g_sup384A);
 			ImGui::Checkbox("skip 384 B (high voff)", &g_sup384B);
