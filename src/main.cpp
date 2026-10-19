@@ -1017,7 +1017,7 @@ float4 main(float4 pos : SV_POSITION) : SV_Target {
 					dsO->Release();
 				}
 			}
-			psO->Release();
+			if (psO) psO->Release();
 		}
 
 		// 红/绿诊断：把 384（Lense）拆成两片分别染色，确定哪片是目镜
