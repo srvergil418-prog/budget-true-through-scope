@@ -1262,6 +1262,15 @@ float4 main(float4 pos : SV_POSITION) : SV_Target {
 				else if (g_forcePoly)   ShowOnly("polySurface22");
 				else if (g_forceMount1) ShowOnly("Mount1");
 				else if (g_forceMount2) ShowOnly("Mount2");
+				else {
+					// 全部取消勾选 → 恢复 STS 原生状态（ADS 时 ScopeNormal 整支被剔除）
+					const char* all[] = { "Lense", "polySurface22", "Mount1", "Mount2" };
+					for (auto* n : all) {
+						if (auto* obj = FindNode(a_pc, n)) {
+							if (!obj->GetAppCulled()) obj->SetAppCulled(true);
+						}
+					}
+				}
 
 				// 透镜只在开镜时可见
 				if (s_lensNode && s_lensNode->GetAppCulled()) {
