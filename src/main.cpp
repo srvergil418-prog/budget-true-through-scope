@@ -373,6 +373,11 @@ namespace RC
 	// 把 Lense 的 384 索引拆成两次绘制：B(index 0..191) 染红，A(index 192..383) 染绿。
 	// 保留原 VS / 输入布局 / 变换，只替换 PS。
 	static ID3D11PixelShader* s_psRed = nullptr;
+	static ID3D11PixelShader* s_psCross = nullptr;   // 屏幕中心十字（用 SV_Position）
+	static ID3D11Buffer* s_cbCross = nullptr;
+	static ID3D11DepthStencilState* s_dsNoStencil = nullptr;
+
+	struct CrossCb { float centerX, centerY, halfW, halfH; };
 	static ID3D11PixelShader* s_psGreen = nullptr;
 
 	static void InitDiagShaders(ID3D11Device* a_dev)
@@ -393,6 +398,46 @@ namespace RC
 		}
 		if (e) e->Release();
 		Log("[DIAG] shaders red=%d green=%d", s_psRed ? 1 : 0, s_psGreen ? 1 : 0);
+
+		// 十字准星 PS：用 SV_Position 算屏幕中心，非准星像素 discard
+		const char* kCross = R"(
+cbuffer Cb : register(b0) {
+    float centerX, centerY, halfW, halfH;
+};
+float4 main(float4 pos : SV_POSITION) : SV_Target {
+    float dx = pos.x - centerX;
+    float dy = pos.y - centerY;
+    // 十字：水平线（|dy|<=halfH）或 垂直线（|dx|<=halfW）
+    bool onH = (abs(dy) <= halfH) && (abs(dx) <= 200.0);
+    bool onV = (abs(dx) <= halfW) && (abs(dy) <= 200.0);
+    if (!onH && !onV) discard;
+    return float4(1.0, 0.0, 0.0, 1.0);
+}
+)";
+		b = nullptr; e = nullptr;
+		if (SUCCEEDED(D3DCompile(kCross, strlen(kCross), nullptr, nullptr, nullptr, "main", "ps_5_0", 0, 0, &b, &e)) && b) {
+			a_dev->CreatePixelShader(b->GetBufferPointer(), b->GetBufferSize(), nullptr, &s_psCross);
+			b->Release();
+		}
+		if (e) e->Release();
+
+		// 十字常量缓冲
+		D3D11_BUFFER_DESC cbd{};
+		cbd.ByteWidth = 16;   // 4 floats
+		cbd.Usage = D3D11_USAGE_DYNAMIC;
+		cbd.BindFlags = D3D11_BIND_CONSTANT_BUFFER;
+		cbd.CPUAccessFlags = D3D11_CPU_ACCESS_WRITE;
+		a_dev->CreateBuffer(&cbd, nullptr, &s_cbCross);
+
+		// 禁用 stencil 的深度状态（保留深度测试、不写深度）
+		D3D11_DEPTH_STENCIL_DESC dsC{};
+		dsC.DepthEnable = TRUE;
+		dsC.DepthWriteMask = D3D11_DEPTH_WRITE_MASK_ZERO;
+		dsC.DepthFunc = D3D11_COMPARISON_LESS_EQUAL;
+		dsC.StencilEnable = FALSE;
+		a_dev->CreateDepthStencilState(&dsC, &s_dsNoStencil);
+
+		Log("[DIAG] cross ps=%d cb=%d dsNoStencil=%d", s_psCross ? 1 : 0, s_cbCross ? 1 : 0, s_dsNoStencil ? 1 : 0);
 	}
 
 	// ======================= 受控抑制实验（身份验证） =======================
@@ -1023,6 +1068,56 @@ float4 main(float4 pos : SV_POSITION) : SV_Target {
 					}
 				}
 				dsS->Release();
+			}
+		}
+
+		// 十字诊断：用 B 组几何的投影覆盖范围限制准星（不写 stencil）
+		if (g_diagCross && a_count == 384 && g_ads.load() && s_psCross && s_cbCross) {
+			ID3D11PixelShader* psX = nullptr;
+			a_ctx->PSGetShader(&psX, nullptr, nullptr);
+			const bool colorX = (psX != nullptr);
+			if (psX) psX->Release();
+			if (colorX) {
+				// 取当前 viewport 中心
+				D3D11_VIEWPORT vp{};
+				UINT vpN = 1;
+				a_ctx->RSGetViewports(&vpN, &vp);
+				const float cx = vp.TopLeftX + vp.Width * 0.5f;
+				const float cy = vp.TopLeftY + vp.Height * 0.5f;
+
+				static int s_crossLog = 0;
+				if (s_crossLog < 3) {
+					s_crossLog++;
+					Log("[CROSS] vp=(%.0f,%.0f %.0fx%.0f) center=(%.1f,%.1f)", vp.TopLeftX, vp.TopLeftY, vp.Width, vp.Height, cx, cy);
+				}
+
+				// 写 CB
+				D3D11_MAPPED_SUBRESOURCE ms{};
+				if (SUCCEEDED(a_ctx->Map(s_cbCross, 0, D3D11_MAP_WRITE_DISCARD, 0, &ms))) {
+					float cb[4] = { cx, cy, 1.0f, 1.0f };   // halfW/halfH = 1px
+					memcpy(ms.pData, cb, sizeof(cb));
+					a_ctx->Unmap(s_cbCross, 0);
+				}
+
+				// 保存状态
+				ID3D11PixelShader* oldPS = nullptr;
+				a_ctx->PSGetShader(&oldPS, nullptr, nullptr);
+				ID3D11DepthStencilState* oldDS = nullptr;
+				UINT oldRef = 0;
+				a_ctx->OMGetDepthStencilState(&oldDS, &oldRef);
+
+				a_ctx->PSSetShader(s_psCross, nullptr, 0);
+				a_ctx->PSSetConstantBuffers(0, 1, &s_cbCross);
+				a_ctx->OMSetDepthStencilState(s_dsNoStencil, 0);
+
+				// 只画 B 组
+				s_origDrawIndexed(a_ctx, 192, a_start, a_base);
+
+				// 恢复
+				if (oldPS) { a_ctx->PSSetShader(oldPS, nullptr, 0); oldPS->Release(); }
+				else a_ctx->PSSetShader(nullptr, nullptr, 0);
+				if (oldDS) { a_ctx->OMSetDepthStencilState(oldDS, oldRef); oldDS->Release(); }
+				return;   // 不画原始 384
 			}
 		}
 
