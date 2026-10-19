@@ -760,6 +760,18 @@ float4 main(float4 pos : SV_POSITION) : SV_Target {
 		{
 			if (!s_ps || !s_cb) return;
 
+			static int s_drawLog = 0;
+			if (s_drawLog < 5) {
+				s_drawLog++;
+				const auto& gs0 = RE::BSGraphics::State::GetSingleton();
+				Log("[LENSDRAW] Draw #%d count=%u start=%u base=%d screen=%ux%u size=%.1f center=(%.1f,%.1f)",
+					s_drawLog, a_count, a_start, a_base,
+					gs0.backBufferWidth, gs0.backBufferHeight,
+					g_reticleSize * g_reticleScale,
+					g_reticleSize * g_reticleScale * 0 + (float)gs0.backBufferWidth * 0.5f + g_reticleOffX,
+					(float)gs0.backBufferHeight * 0.5f + g_reticleOffY);
+			}
+
 			const auto& gs = RE::BSGraphics::State::GetSingleton();
 			Cb cb{};
 			cb.screenW = (float)gs.backBufferWidth;
