@@ -364,6 +364,8 @@ namespace RC
 	static std::atomic<int>  s_timelineFrames{ 0 };
 	static int s_timelineSeq = 0;
 	static int s_dsProbeCount = 0;
+	static int s_candLog = 0;
+	static int s_candFrame = 0;
 	static bool s_frameStats = true;
 	static int s_frameDraws = 0;
 	static int s_frameStencilOn = 0;
@@ -1049,8 +1051,6 @@ float4 main(float4 pos : SV_POSITION) : SV_Target {
 		// 状态对照：抓普通几何（非 384）的 DepthStencil 状态，判断 REPLACE/ref=1 是否通用
 		// 候选 Draw 记录：无条件记录所有 384/start=0 的调用（含是否被十字接管）
 		if (g_ads.load() && a_count == 384 && a_start == 0) {
-			static int s_candLog = 0;
-	static int s_candFrame = 0;
 			if (s_candLog < 20) {
 				s_candLog++;
 				ID3D11Buffer* vbC = nullptr;
