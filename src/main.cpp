@@ -1218,6 +1218,90 @@ float4 main(float4 pos : SV_POSITION) : SV_Target {
 		s_origPCUpdate(a_pc);
 	}
 
+	// ======================= 自动截图（BMP） =======================
+	// 在 Present 前把 backbuffer 存成 24 位 BMP，免去人工截图。
+	static int s_shotIndex = 0;
+
+	static void SaveBackbufferBmp(IDXGISwapChain* a_sc, ID3D11Device* a_dev, ID3D11DeviceContext* a_ctx, const char* a_tag)
+	{
+		if (!a_sc || !a_dev || !a_ctx) return;
+		ID3D11Texture2D* back = nullptr;
+		if (FAILED(a_sc->GetBuffer(0, __uuidof(ID3D11Texture2D), (void**)&back)) || !back) {
+			Log("[SHOT] GetBuffer FAILED");
+			return;
+		}
+		D3D11_TEXTURE2D_DESC td{};
+		back->GetDesc(&td);
+
+		D3D11_TEXTURE2D_DESC sd = td;
+		sd.Usage = D3D11_USAGE_STAGING;
+		sd.BindFlags = 0;
+		sd.CPUAccessFlags = D3D11_CPU_ACCESS_READ;
+		sd.MiscFlags = 0;
+		ID3D11Texture2D* staging = nullptr;
+		if (FAILED(a_dev->CreateTexture2D(&sd, nullptr, &staging)) || !staging) {
+			Log("[SHOT] staging FAILED");
+			back->Release();
+			return;
+		}
+		a_ctx->CopyResource(staging, back);
+
+		D3D11_MAPPED_SUBRESOURCE ms{};
+		if (FAILED(a_ctx->Map(staging, 0, D3D11_MAP_READ, 0, &ms))) {
+			Log("[SHOT] Map FAILED");
+			staging->Release();
+			back->Release();
+			return;
+		}
+
+		const UINT W = td.Width, H = td.Height;
+		const UINT rowBytes = W * 3;
+		const UINT pad = (4 - (rowBytes % 4)) % 4;
+		const UINT fileRow = rowBytes + pad;
+		const UINT dataSize = fileRow * H;
+		const UINT fileSize = 54 + dataSize;
+
+		wchar_t path[MAX_PATH];
+		swprintf_s(path, L"E:\\Custom Fallout4\\shots\\%s_%d.bmp",
+			a_tag, s_shotIndex++);
+
+		HANDLE f = CreateFileW(path, GENERIC_WRITE, 0, nullptr, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
+		if (f != INVALID_HANDLE_VALUE) {
+			uint8_t hdr[54] = {};
+			hdr[0] = 'B'; hdr[1] = 'M';
+			memcpy(hdr + 2, &fileSize, 4);
+			uint32_t off = 54; memcpy(hdr + 10, &off, 4);
+			uint32_t hs = 40; memcpy(hdr + 14, &hs, 4);
+			memcpy(hdr + 18, &W, 4);
+			memcpy(hdr + 22, &H, 4);
+			uint16_t planes = 1; memcpy(hdr + 26, &planes, 2);
+			uint16_t bpp = 24; memcpy(hdr + 28, &bpp, 2);
+			memcpy(hdr + 34, &dataSize, 4);
+			DWORD wrote = 0;
+			WriteFile(f, hdr, 54, &wrote, nullptr);
+
+			// 逐行写（BMP 是自底向上，且 BGR）
+			std::vector<uint8_t> row(fileRow);
+			for (int y = (int)H - 1; y >= 0; --y) {
+				const uint8_t* src = (const uint8_t*)ms.pData + (size_t)y * ms.RowPitch;
+				for (UINT x = 0; x < W; ++x) {
+					row[x * 3 + 0] = src[x * 4 + 0];  // B
+					row[x * 3 + 1] = src[x * 4 + 1];  // G
+					row[x * 3 + 2] = src[x * 4 + 2];  // R
+				}
+				WriteFile(f, row.data(), fileRow, &wrote, nullptr);
+			}
+			CloseHandle(f);
+			Log("[SHOT] saved %ls", path);
+		} else {
+			Log("[SHOT] CreateFile FAILED (%ls)", path);
+		}
+
+		a_ctx->Unmap(staging, 0);
+		staging->Release();
+		back->Release();
+	}
+
 	// ======================= Present =======================
 	using Present_t = HRESULT(WINAPI*)(IDXGISwapChain*, UINT, UINT);
 	static Present_t s_origPresent = nullptr;
@@ -1233,11 +1317,11 @@ float4 main(float4 pos : SV_POSITION) : SV_Target {
 		static bool s_lastF8 = false;
 		const bool f8 = (GetAsyncKeyState(VK_F8) & 0x8000) != 0;
 		if (f8 && !s_lastF8) {
-			s_suppressFrames.store(60);
+			s_suppressFrames.store(300);
 			s_suppressSkipped.store(0);
 			s_suppressWhich.store(0);
 			s_suppressActive.store(true);
-			Log("[SUPPRESS] armed: 144-index color draw (ScopeFade)");
+			Log("[SUPPRESS] armed: 144-index color draw (ScopeFade, 5s)");
 		}
 		s_lastF8 = f8;
 
@@ -1245,22 +1329,22 @@ float4 main(float4 pos : SV_POSITION) : SV_Target {
 		static bool s_lastF11 = false;
 		const bool f11 = (GetAsyncKeyState(VK_F11) & 0x8000) != 0;
 		if (f11 && !s_lastF11) {
-			s_suppressFrames.store(60);
+			s_suppressFrames.store(300);
 			s_suppressSkipped.store(0);
 			s_suppressWhich.store(1);
 			s_suppressActive.store(true);
-			Log("[SUPPRESS] armed: 384 candidate A (low voff)");
+			Log("[SUPPRESS] armed: 384 candidate A (low voff, 5s)");
 		}
 		s_lastF11 = f11;
 
 		static bool s_lastF12 = false;
 		const bool f12 = (GetAsyncKeyState(VK_F12) & 0x8000) != 0;
 		if (f12 && !s_lastF12) {
-			s_suppressFrames.store(60);
+			s_suppressFrames.store(300);
 			s_suppressSkipped.store(0);
 			s_suppressWhich.store(2);
 			s_suppressActive.store(true);
-			Log("[SUPPRESS] armed: 384 candidate B (high voff)");
+			Log("[SUPPRESS] armed: 384 candidate B (high voff, 5s)");
 		}
 		s_lastF12 = f12;
 
@@ -1282,6 +1366,31 @@ float4 main(float4 pos : SV_POSITION) : SV_Target {
 		}
 
 		ImGui_Render(a_sc);
+
+		// 截图：F6 手动；抑制窗口内每 60 帧自动一张
+		{
+			auto* rdShot = RE::BSGraphics::RendererData::GetSingleton();
+			if (rdShot && rdShot->device && rdShot->context) {
+				auto* devShot = (ID3D11Device*)static_cast<void*>(rdShot->device);
+				auto* ctxShot = (ID3D11DeviceContext*)static_cast<void*>(rdShot->context);
+
+				static bool s_lastF6 = false;
+				const bool f6 = (GetAsyncKeyState(VK_F6) & 0x8000) != 0;
+				if (f6 && !s_lastF6) {
+					SaveBackbufferBmp(a_sc, devShot, ctxShot, "manual");
+				}
+				s_lastF6 = f6;
+
+				static int s_autoTick = 0;
+				if (s_suppressActive.load()) {
+					if ((s_autoTick++ % 60) == 0) {
+						SaveBackbufferBmp(a_sc, devShot, ctxShot, "suppress");
+					}
+				} else {
+					s_autoTick = 0;
+				}
+			}
+		}
 
 		// 回到屏幕层方案（r37 状态）：准星固定在屏幕中心，圆形遮罩可调。
 		// 3D 接管那套因为"索引数无法唯一标识几何体"而误伤天空，已停用。
@@ -1309,6 +1418,7 @@ float4 main(float4 pos : SV_POSITION) : SV_Target {
 	{
 		const auto mh = MH_Initialize();
 		Log("[INIT] MH_Initialize = %d", (int)mh);
+		CreateDirectoryW(L"E:\\Custom Fallout4\\shots", nullptr);
 
 		{
 			static REL::Relocation<std::uintptr_t> addr{ REL::ID(1134912) };
