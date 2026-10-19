@@ -702,8 +702,13 @@ cbuffer Cb : register(b0) {
 Texture2D    gTex  : register(t0);
 SamplerState gSamp : register(s0);
 float4 main(float4 pos : SV_POSITION) : SV_Target {
-    // === 临时诊断：整片纯红，不做任何 UV 判断，用来看 nif 到底覆盖屏幕哪里 ===
-    return float4(1.0, 0.0, 0.0, 1.0);
+    // 圆盘内采样准星贴图，圆外丢弃。center/size 是屏幕像素坐标。
+    float2 uv = (pos.xy - float2(centerX, centerY)) / size + 0.5;
+    if (uv.x < 0.0 || uv.x > 1.0 || uv.y < 0.0 || uv.y > 1.0) {
+        discard;
+    }
+    float4 c = gTex.Sample(gSamp, uv);
+    return float4(c.rgb, c.a * alpha);
 }
 )";
 
@@ -809,8 +814,11 @@ float4 main(float4 pos : SV_POSITION) : SV_Target {
 				a_ctx->PSSetShader(oldPS, nullptr, 0);
 				oldPS->Release();
 			} else {
+				// 关键：原 PS 本来就为空（深度预 pass）时，必须显式设回 null，
+				// 否则我们的 PS 会一直留在上下文里，污染后续所有绘制（天空变红就是这么来的）
+				a_ctx->PSSetShader(nullptr, nullptr, 0);
 				static int s_nullLog = 0;
-				if (s_nullLog < 3) { s_nullLog++; Log("[LENSDRAW] oldPS was NULL"); }
+				if (s_nullLog < 3) { s_nullLog++; Log("[LENSDRAW] oldPS was NULL (restored to null)"); }
 			}
 			// SRV 恢复：oldSRV 可能为 null，此时必须显式设 null 解绑
 			a_ctx->PSSetShaderResources(0, 1, &oldSRV);
@@ -1028,7 +1036,14 @@ float4 main(float4 pos : SV_POSITION) : SV_Target {
 
 			// r99 时间线实测：自挂 LensCircle.nif 的 stride 是 24。
 			// 之前写 28 命中的是另一个 96-index 几何体（#8，depthFunc=2）。
-			if (stride == 24) {
+			// 只在颜色 pass 接管：深度预 pass（PS 为空）不该调用 LensDraw，
+			// 那会往无 PS 的 pass 里塞我们的着色器。
+			ID3D11PixelShader* psChk2 = nullptr;
+			a_ctx->PSGetShader(&psChk2, nullptr, nullptr);
+			const bool hasPS = (psChk2 != nullptr);
+			if (psChk2) psChk2->Release();
+
+			if (stride == 24 && hasPS) {
 				// 阶段 A 验证：记录每次识别的完整指纹，用于确认稳定性与不误命中
 				static int s_hitLog = 0;
 				static UINT s_lastVoff = 0xFFFFFFFF;
