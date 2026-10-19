@@ -782,6 +782,12 @@ float4 main(float4 pos : SV_POSITION) : SV_Target {
 			UINT oldStencilRef = 0;
 			a_ctx->OMGetDepthStencilState(&oldDS, &oldStencilRef);
 
+			// 保存 SRV / Sampler —— 只恢复 PS 不够，泄漏的 SRV 会让天空等后续绘制采样到我们的贴图
+			ID3D11ShaderResourceView* oldSRV = nullptr;
+			a_ctx->PSGetShaderResources(0, 1, &oldSRV);
+			ID3D11SamplerState* oldSamp = nullptr;
+			a_ctx->PSGetSamplers(0, 1, &oldSamp);
+
 			a_ctx->PSSetShader(s_ps, nullptr, 0);
 			a_ctx->PSSetConstantBuffers(0, 1, &s_cb);
 			a_ctx->PSSetShaderResources(0, 1, &s_srv);
@@ -790,7 +796,7 @@ float4 main(float4 pos : SV_POSITION) : SV_Target {
 
 			s_origDrawIndexed(a_ctx, a_count, a_start, a_base);
 
-			// 恢复：必须把原来的 PS 还回去，否则绿色会泄漏到天空等后续绘制
+			// 恢复：PS + SRV + Sampler 都要还原，否则会污染后续绘制（天空变绿就是这么来的）
 			if (oldPS) {
 				a_ctx->PSSetShader(oldPS, nullptr, 0);
 				oldPS->Release();
@@ -798,6 +804,12 @@ float4 main(float4 pos : SV_POSITION) : SV_Target {
 				static int s_nullLog = 0;
 				if (s_nullLog < 3) { s_nullLog++; Log("[LENSDRAW] oldPS was NULL"); }
 			}
+			// SRV 恢复：oldSRV 可能为 null，此时必须显式设 null 解绑
+			a_ctx->PSSetShaderResources(0, 1, &oldSRV);
+			if (oldSRV) oldSRV->Release();
+			a_ctx->PSSetSamplers(0, 1, &oldSamp);
+			if (oldSamp) oldSamp->Release();
+
 			if (oldDS) { a_ctx->OMSetDepthStencilState(oldDS, oldStencilRef); oldDS->Release(); }
 		}
 	}
