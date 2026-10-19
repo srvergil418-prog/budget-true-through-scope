@@ -364,6 +364,32 @@ namespace RC
 	static std::atomic<int>  s_timelineFrames{ 0 };
 	static int s_timelineSeq = 0;
 
+	// ======================= 红/绿诊断（确定哪片是目镜） =======================
+	// 把 Lense 的 384 索引拆成两次绘制：B(index 0..191) 染红，A(index 192..383) 染绿。
+	// 保留原 VS / 输入布局 / 变换，只替换 PS。
+	static ID3D11PixelShader* s_psRed = nullptr;
+	static ID3D11PixelShader* s_psGreen = nullptr;
+
+	static void InitDiagShaders(ID3D11Device* a_dev)
+	{
+		if (s_psRed || !a_dev) return;
+		const char* kRed = "float4 main(float4 p : SV_POSITION) : SV_Target { return float4(1,0,0,1); }";
+		const char* kGrn = "float4 main(float4 p : SV_POSITION) : SV_Target { return float4(0,1,0,1); }";
+		ID3DBlob* b = nullptr; ID3DBlob* e = nullptr;
+		if (SUCCEEDED(D3DCompile(kRed, strlen(kRed), nullptr, nullptr, nullptr, "main", "ps_5_0", 0, 0, &b, &e)) && b) {
+			a_dev->CreatePixelShader(b->GetBufferPointer(), b->GetBufferSize(), nullptr, &s_psRed);
+			b->Release();
+		}
+		if (e) { e->Release(); e = nullptr; }
+		b = nullptr;
+		if (SUCCEEDED(D3DCompile(kGrn, strlen(kGrn), nullptr, nullptr, nullptr, "main", "ps_5_0", 0, 0, &b, &e)) && b) {
+			a_dev->CreatePixelShader(b->GetBufferPointer(), b->GetBufferSize(), nullptr, &s_psGreen);
+			b->Release();
+		}
+		if (e) e->Release();
+		Log("[DIAG] shaders red=%d green=%d", s_psRed ? 1 : 0, s_psGreen ? 1 : 0);
+	}
+
 	// ======================= 受控抑制实验（身份验证） =======================
 	// 按 F8 启动一个约 60 帧的抑制窗口：只跳过「144 索引 + PS 非空 + stride 20」
 	// 的颜色 pass draw。用途是 A/B 对比确认该 draw 是否就是 ScopeFade。
@@ -932,6 +958,30 @@ float4 main(float4 pos : SV_POSITION) : SV_Target {
 			if (ilTl) ilTl->Release();
 			if (vbTl) vbTl->Release();
 			if (ibTl) ibTl->Release();
+		}
+
+		// 红/绿诊断：把 384（Lense）拆成两片分别染色，确定哪片是目镜
+		if (g_diagSplit && a_count == 384 && g_ads.load()) {
+			ID3D11PixelShader* psD = nullptr;
+			a_ctx->PSGetShader(&psD, nullptr, nullptr);
+			const bool colorPassD = (psD != nullptr);
+			if (psD) psD->Release();
+			if (colorPassD && s_psRed && s_psGreen) {
+				static int s_splitLog = 0;
+				if (s_splitLog < 3) {
+					s_splitLog++;
+					Log("[DIAG] split start=%u base=%d -> B[0..191]=red A[192..383]=green", a_start, a_base);
+				}
+				// B 组：index 0..191 染红
+				a_ctx->PSSetShader(s_psRed, nullptr, 0);
+				s_origDrawIndexed(a_ctx, 192, a_start, a_base);
+				// A 组：index 192..383 染绿
+				a_ctx->PSSetShader(s_psGreen, nullptr, 0);
+				s_origDrawIndexed(a_ctx, 192, a_start + 192, a_base);
+				// 恢复原 PS
+				a_ctx->PSSetShader(nullptr, nullptr, 0);
+				return;   // 不画原始的 384，避免覆盖诊断色
+			}
 		}
 
 		// 实验 B：分别抑制两个 384 候选（按 voff 区分），用于身份辨认
@@ -1578,6 +1628,7 @@ float4 main(float4 pos : SV_POSITION) : SV_Target {
 				if (MH_CreateHook(vtDev[11], (LPVOID)&hkCreateInputLayout, (LPVOID*)&s_origCreateInputLayout) == MH_OK) {
 					MH_EnableHook(vtDev[11]);
 					Log("[INIT] CreateInputLayout hooked");
+					InitDiagShaders(dev);
 				} else {
 					Log("[INIT] CreateInputLayout hook FAILED");
 				}
