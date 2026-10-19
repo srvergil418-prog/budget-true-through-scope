@@ -277,6 +277,12 @@ namespace RC
 			}
 		}
 
+		// 诊断：记录 Weapon 指针与已挂载实例的关系
+		Log("[LENS] spawn check: weaponNode=%p | s_lensNode=%p | parent=%p | same=%d",
+			(void*)weaponNode, (void*)s_lensNode,
+			s_lensNode ? (void*)s_lensNode->parent : nullptr,
+			(s_lensNode && s_lensNode->parent == weaponNode) ? 1 : 0);
+
 		// 已经挂着且还在武器树下：只更新位置（菜单改完立刻生效），不重新加载
 		if (s_lensNode && s_lensNode->parent == weaponNode) {
 			s_lensNode->local.translate = target;
