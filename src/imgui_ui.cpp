@@ -31,6 +31,9 @@ namespace RC
 	bool  g_supNif = false;
 	bool  g_supLense = false;
 	bool  g_forceLense = false;
+	bool  g_forcePoly = false;
+	bool  g_forceMount1 = false;
+	bool  g_forceMount2 = false;
 	bool  g_wantShot = false;
 
 	static bool s_init = false;
@@ -140,7 +143,10 @@ namespace RC
 
 			ImGui::Separator();
 			ImGui::Text("Debug: skip draws (persistent)");
-			ImGui::Checkbox("FORCE LENSE visible (undo STS cull)", &g_forceLense);
+			ImGui::Checkbox("FORCE Lense:0 visible", &g_forceLense);
+			ImGui::Checkbox("FORCE polySurface22 visible", &g_forcePoly);
+			ImGui::Checkbox("FORCE Mount1 visible", &g_forceMount1);
+			ImGui::Checkbox("FORCE Mount2 visible", &g_forceMount2);
 			ImGui::Checkbox("skip LENSE (both 384)", &g_supLense);
 			ImGui::Checkbox("skip 144 (ScopeFade)", &g_sup144);
 			ImGui::Checkbox("skip 384 A (low voff)", &g_sup384A);
