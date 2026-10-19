@@ -577,7 +577,9 @@ namespace RC
 		}
 
 		// --- 只读：staging 拷贝顶点缓冲（48 × 20 = 960 字节，完整导出）---
-		const UINT vbReadBytes = (vbd.ByteWidth < 960) ? vbd.ByteWidth : 960;
+		// 按 stride 读足够多的顶点（Lense 有 82 个顶点，之前固定 960 只够 48 个）
+		const UINT vbWant = stride * 200;
+		const UINT vbReadBytes = (vbd.ByteWidth < vbWant) ? vbd.ByteWidth : vbWant;
 		if (vb && vbReadBytes > 0 && stride > 0) {
 			D3D11_BUFFER_DESC sd{};
 			sd.ByteWidth = vbReadBytes;
