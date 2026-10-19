@@ -113,9 +113,17 @@ cbuffer Cb : register(b0) {
     float maskCX, maskCY, pad0, pad1;
 };
 Texture2D    gTex  : register(t0);
+Texture2D    gMask : register(t1);
 SamplerState gSamp : register(s0);
 float4 main(float4 pos : SV_POSITION) : SV_Target {
     float2 p = pos.xy;
+
+    // r169: 采样目镜 mask（pad0 = 是否启用 mask 裁剪）
+    float2 muv = p / float2(screenW, screenH);
+    float m = gMask.Sample(gSamp, muv).r;
+    if (pad0 > 0.5 && m < 0.5) {
+        discard;
+    }
 
     // 遮罩圆 + 红色边界（独立于准星大小）
     if (maskR > 0.5) {
@@ -390,6 +398,9 @@ float4 main(float4 pos : SV_POSITION) : SV_Target {
 			cb.maskR = maskR;
 			cb.maskCX = (float)td.Width * 0.5f + (g_maskAuto ? g_maskCX : g_maskOffX);
 			cb.maskCY = (float)td.Height * 0.5f + (g_maskAuto ? g_maskCY : g_maskOffY);
+			// r169: pad0 = 是否启用目镜 mask 裁剪
+			cb.pad0 = (g_maskUse && g_maskSRV) ? 1.0f : 0.0f;
+			cb.pad1 = 0.0f;
 
 			D3D11_MAPPED_SUBRESOURCE ms{};
 			if (SUCCEEDED(ctx->Map(s_state.cb, 0, D3D11_MAP_WRITE_DISCARD, 0, &ms))) {
@@ -403,6 +414,9 @@ float4 main(float4 pos : SV_POSITION) : SV_Target {
 			ctx->VSSetShader(s_state.vs, nullptr, 0);
 			ctx->PSSetShader(s_state.ps, nullptr, 0);
 			ctx->PSSetShaderResources(0, 1, &s_state.srv);
+			// r169: mask 绑到 t1（没有时用绿色纹理占位，PS 里靠 pad0 关掉）
+			ID3D11ShaderResourceView* maskBinding = (g_maskUse && g_maskSRV) ? g_maskSRV : s_state.srv;
+			ctx->PSSetShaderResources(1, 1, &maskBinding);
 			ctx->PSSetSamplers(0, 1, &s_state.samp);
 
 			ctx->Draw(4, 0);
