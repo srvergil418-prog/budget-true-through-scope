@@ -1006,10 +1006,15 @@ float4 main(float4 pos : SV_POSITION) : SV_Target {
 			// r99 时间线实测：自挂 LensCircle.nif 的 stride 是 24。
 			// 之前写 28 命中的是另一个 96-index 几何体（#8，depthFunc=2）。
 			if (stride == 24) {
+				// 阶段 A 验证：记录每次识别的完整指纹，用于确认稳定性与不误命中
 				static int s_hitLog = 0;
-				if (s_hitLog < 5) {
+				static UINT s_lastVoff = 0xFFFFFFFF;
+				if (s_hitLog < 40) {
 					s_hitLog++;
-					Log("[DRAW] disk MATCH count=%u stride=%u", a_count, stride);
+					Log("[IDENT] #%d count=%u stride=%u voff=%u start=%u base=%d%s",
+						s_hitLog, a_count, stride, off, a_start, a_base,
+						(off == s_lastVoff ? "" : "  <-- voff CHANGED"));
+					s_lastVoff = off;
 				}
 				LensDraw::Draw(a_ctx, a_count, a_start, a_base);
 				return;
@@ -1191,6 +1196,7 @@ float4 main(float4 pos : SV_POSITION) : SV_Target {
 					s_lensIndexCount = 0;
 					CacheLenseIndexCount(a_pc);
 					SpawnLens();
+					Log("[STAGE-A] ADS enter: diskIndexCount=%u lensIndexCount=%u", s_diskIndexCount, s_lensIndexCount);
 
 					// 场景树侧：记录 ScopeFade 的实际字段（供 Draw 映射用）
 					DumpScopeFadeObject(a_pc);
