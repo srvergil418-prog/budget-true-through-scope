@@ -374,6 +374,7 @@ namespace RC
 	static std::atomic<int>  s_suppressWhich{ 0 };   // 0=144模式 1=384低voff 2=384高voff
 
 	static bool s_fadeCaptured = false;
+	static bool s_lenseCaptured = false;   // 384（Lense:0）的一次性捕获
 
 	static void DumpIlFor(void* a_ptr);
 
@@ -1021,6 +1022,19 @@ float4 main(float4 pos : SV_POSITION) : SV_Target {
 			if (psCheck) {
 				psCheck->Release();
 				s_fadeCaptured = true;
+				CaptureScopeFade(a_ctx, a_count, a_start, a_base);
+			}
+		}
+
+		// 一次性只读诊断：捕获 384（Lense:0）的颜色 pass 顶点，用来判断它是
+		// 「完整镜片面」还是「筒壁/环形」。需要先勾 FORCE Lense 让它被绘制。
+		if (!s_lenseCaptured && a_count == 384 && g_ads.load()) {
+			ID3D11PixelShader* psL = nullptr;
+			a_ctx->PSGetShader(&psL, nullptr, nullptr);
+			if (psL) {
+				psL->Release();
+				s_lenseCaptured = true;
+				Log("[CAP] === LENSE (384) capture start ===");
 				CaptureScopeFade(a_ctx, a_count, a_start, a_base);
 			}
 		}
