@@ -1077,7 +1077,14 @@ float4 main(float4 pos : SV_POSITION) : SV_Target {
 			a_ctx->PSGetShader(&psX, nullptr, nullptr);
 			const bool colorX = (psX != nullptr);
 			if (psX) psX->Release();
-			if (colorX) {
+
+			// 守卫：确认是 Lense 的几何（stride=20，颜色 pass）
+			ID3D11Buffer* vbX = nullptr;
+			UINT strideX = 0, offX = 0;
+			a_ctx->IAGetVertexBuffers(0, 1, &vbX, &strideX, &offX);
+			if (vbX) vbX->Release();
+
+			if (colorX && strideX == 20) {
 				// 取当前 viewport 中心（必须校验有效性）
 				D3D11_VIEWPORT vp{};
 				UINT vpN = 1;
@@ -1097,13 +1104,19 @@ float4 main(float4 pos : SV_POSITION) : SV_Target {
 					Log("[CROSS] vp=(%.0f,%.0f %.0fx%.0f) center=(%.1f,%.1f)", vp.TopLeftX, vp.TopLeftY, vp.Width, vp.Height, cx, cy);
 				}
 
-				// 写 CB
+				// 写 CB（失败则回退原始绘制，不用过期常量）
 				D3D11_MAPPED_SUBRESOURCE ms{};
-				if (SUCCEEDED(a_ctx->Map(s_cbCross, 0, D3D11_MAP_WRITE_DISCARD, 0, &ms))) {
-					float cb[4] = { cx, cy, 1.0f, 1.0f };   // halfW/halfH = 1px
-					memcpy(ms.pData, cb, sizeof(cb));
-					a_ctx->Unmap(s_cbCross, 0);
+				HRESULT hrMap = a_ctx->Map(s_cbCross, 0, D3D11_MAP_WRITE_DISCARD, 0, &ms);
+				if (FAILED(hrMap) || !ms.pData) {
+					static int s_mapFail = 0;
+					if (s_mapFail < 3) { s_mapFail++; Log("[CROSS] Map FAILED 0x%08X, fallback", (unsigned)hrMap); }
+					if (SUCCEEDED(hrMap)) a_ctx->Unmap(s_cbCross, 0);
+					s_origDrawIndexed(a_ctx, a_count, a_start, a_base);
+					return;
 				}
+				float cb[4] = { cx, cy, 1.0f, 1.0f };
+				memcpy(ms.pData, cb, sizeof(cb));
+				a_ctx->Unmap(s_cbCross, 0);
 
 				// 保存全部要改的状态
 				ID3D11PixelShader* oldPS = nullptr;
@@ -1126,7 +1139,12 @@ float4 main(float4 pos : SV_POSITION) : SV_Target {
 				else a_ctx->PSSetShader(nullptr, nullptr, 0);
 				a_ctx->PSSetConstantBuffers(0, 1, &oldCB0);
 				if (oldCB0) oldCB0->Release();
-				if (oldDS) { a_ctx->OMSetDepthStencilState(oldDS, oldRef); oldDS->Release(); }
+				if (oldDS) {
+					a_ctx->OMSetDepthStencilState(oldDS, oldRef);
+					oldDS->Release();
+				} else {
+					a_ctx->OMSetDepthStencilState(nullptr, oldRef);   // 恢复默认状态
+				}
 				return;   // 不画原始 384
 			}
 		}
