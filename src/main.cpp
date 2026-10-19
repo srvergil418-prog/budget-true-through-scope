@@ -815,6 +815,7 @@ float4 main(float4 pos : SV_POSITION) : SV_Target {
 			const bool colorPass = (psP != nullptr);
 			if (psP) psP->Release();
 
+			if (g_supLense && a_count == 384 && strideP == 20 && colorPass) return;
 			if (g_sup144 && a_count == 144 && colorPass) return;
 			if (g_sup384A && a_count == 384 && strideP == 20 && voffP < 10000000u && colorPass) return;
 			if (g_sup384B && a_count == 384 && strideP == 20 && voffP >= 10000000u && colorPass) return;
@@ -1121,8 +1122,9 @@ float4 main(float4 pos : SV_POSITION) : SV_Target {
 				// 每帧算镜片投影（诊断用）
 				UpdateMask(a_pc);
 
-				// 回退到 r73 的行为：强制 Lense 可见（覆盖 STS 剔除）
-				ForceLenseVisible(a_pc);
+				// 停用 ForceLenseVisible：这一坨黑色就是 Lense:0，本该被 STS 剔除。
+				// 强制显示它会让镜筒内部被黑色筒壁挡住，看不到后面。
+				// ForceLenseVisible(a_pc);
 
 				// 透镜只在开镜时可见
 				if (s_lensNode && s_lensNode->GetAppCulled()) {
