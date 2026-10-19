@@ -385,6 +385,7 @@ namespace RC
 	static ID3D11Buffer* s_cbCross = nullptr;
 	static ID3D11DepthStencilState* s_dsNoStencil = nullptr;
 	static ID3D11DepthStencilState* s_dsNoDepthWrite = nullptr;   // r166: 不写深度
+	static ID3D11DepthStencilState* s_dsNoDepthTest = nullptr;   // r168: 完全不测深度
 
 	struct CrossCb { float centerX, centerY, halfW, halfH; };
 	static ID3D11PixelShader* s_psGreen = nullptr;
@@ -448,6 +449,14 @@ float4 main(float4 pos : SV_POSITION) : SV_Target {
 
 		// r166: 用于替换 Lense 深度预 pass 的状态 —— 深度测试照常，但不写深度
 		a_dev->CreateDepthStencilState(&dsC, &s_dsNoDepthWrite);
+
+		// r168: 十字用的「完全不测深度」状态
+		D3D11_DEPTH_STENCIL_DESC dsN{};
+		dsN.DepthEnable = FALSE;
+		dsN.DepthWriteMask = D3D11_DEPTH_WRITE_MASK_ZERO;
+		dsN.DepthFunc = D3D11_COMPARISON_ALWAYS;
+		dsN.StencilEnable = FALSE;
+		a_dev->CreateDepthStencilState(&dsN, &s_dsNoDepthTest);
 
 		Log("[DIAG] cross ps=%d cb=%d dsNoStencil=%d dsNoDepthWrite=%d",
 			s_psCross ? 1 : 0, s_cbCross ? 1 : 0, s_dsNoStencil ? 1 : 0, s_dsNoDepthWrite ? 1 : 0);
@@ -1302,7 +1311,12 @@ float4 main(float4 pos : SV_POSITION) : SV_Target {
 
 				a_ctx->PSSetShader(s_psCross, nullptr, 0);
 				a_ctx->PSSetConstantBuffers(0, 1, &s_cbCross);
-				a_ctx->OMSetDepthStencilState(s_dsNoStencil, 0);
+				// r168: 跳过深度写入时，十字也不能测深度（否则深度缓冲里没有 Lense 的深度，测试失败）
+				if (g_skipDepthWrite && s_dsNoDepthTest) {
+					a_ctx->OMSetDepthStencilState(s_dsNoDepthTest, 0);
+				} else {
+					a_ctx->OMSetDepthStencilState(s_dsNoStencil, 0);
+				}
 
 				// 只画 B 组
 				s_origDrawIndexed(a_ctx, 192, a_start, a_base);
