@@ -357,6 +357,13 @@ namespace RC
 	// 一次性捕获 ScopeFade 候选 draw 的 VB/IB 身份与原始数据。
 	// 遵守约束：不 Map 游戏缓冲（用 staging + CopyResource）、只捕获一次、
 	// 不逐帧、不改变任何渲染状态、释放所有 COM 引用。
+	// ======================= Gate A：同帧 Draw 时间线诊断 =======================
+	// F9 启动约 60 帧窗口，记录 nif(96) / ScopeFade(144) / Lense(384) 三个候选的
+	// 绘制顺序、pass 归属、DSV 完整信息。只读，不改任何绘制。
+	static std::atomic<bool> s_timelineActive{ false };
+	static std::atomic<int>  s_timelineFrames{ 0 };
+	static int s_timelineSeq = 0;
+
 	// ======================= 受控抑制实验（身份验证） =======================
 	// 按 F8 启动一个约 60 帧的抑制窗口：只跳过「144 索引 + PS 非空 + stride 20」
 	// 的颜色 pass draw。用途是 A/B 对比确认该 draw 是否就是 ScopeFade。
@@ -796,6 +803,70 @@ float4 main(float4 pos : SV_POSITION) : SV_Target {
 
 	static void STDMETHODCALLTYPE hkDrawIndexed(ID3D11DeviceContext* a_ctx, UINT a_count, UINT a_start, INT a_base)
 	{
+		// Gate A 时间线：F9 窗口内记录 nif(96)/ScopeFade(144)/Lense(384) 的绘制顺序
+		if (s_timelineActive.load() && (a_count == 96 || a_count == 144 || a_count == 384)) {
+			ID3D11PixelShader* psTl = nullptr;
+			ID3D11VertexShader* vsTl = nullptr;
+			ID3D11InputLayout* ilTl = nullptr;
+			a_ctx->PSGetShader(&psTl, nullptr, nullptr);
+			a_ctx->VSGetShader(&vsTl, nullptr, nullptr);
+			a_ctx->IAGetInputLayout(&ilTl);
+
+			ID3D11Buffer* vbTl = nullptr;
+			UINT strideTl = 0, voffTl = 0;
+			a_ctx->IAGetVertexBuffers(0, 1, &vbTl, &strideTl, &voffTl);
+			ID3D11Buffer* ibTl = nullptr;
+			DXGI_FORMAT fmtTl = DXGI_FORMAT_UNKNOWN;
+			UINT ioffTl = 0;
+			a_ctx->IAGetIndexBuffer(&ibTl, &fmtTl, &ioffTl);
+
+			ID3D11DepthStencilView* dsvTl = nullptr;
+			a_ctx->OMGetRenderTargets(1, nullptr, &dsvTl);
+			D3D11_DEPTH_STENCIL_VIEW_DESC dsvd{};
+			int dsvViewFmt = -1;
+			int dsvResFmt = -1;
+			if (dsvTl) {
+				dsvTl->GetDesc(&dsvd);
+				dsvViewFmt = (int)dsvd.Format;
+				ID3D11Resource* res = nullptr;
+				dsvTl->GetResource(&res);
+				if (res) {
+					D3D11_RESOURCE_DIMENSION dim = D3D11_RESOURCE_DIMENSION_UNKNOWN;
+					res->GetType(&dim);
+					if (dim == D3D11_RESOURCE_DIMENSION_TEXTURE2D) {
+						D3D11_TEXTURE2D_DESC td{};
+						((ID3D11Texture2D*)res)->GetDesc(&td);
+						dsvResFmt = (int)td.Format;
+					}
+					res->Release();
+				}
+				dsvTl->Release();
+			}
+
+			ID3D11DepthStencilState* dsTl = nullptr;
+			UINT stencilRefTl = 0;
+			a_ctx->OMGetDepthStencilState(&dsTl, &stencilRefTl);
+			int dstencilEnable = -1, dcmp = -1;
+			if (dsTl) {
+				D3D11_DEPTH_STENCIL_DESC dsd{};
+				dsTl->GetDesc(&dsd);
+				dstencilEnable = dsd.StencilEnable ? 1 : 0;
+				dcmp = (int)dsd.DepthFunc;
+				dsTl->Release();
+			}
+
+			Log("[TL] #%d count=%u stride=%u ps=%p vs=%p il=%p | dsvFmt(view=%d res=%d) stencil=%d depthFunc=%d voff=%u ioff=%u",
+				s_timelineSeq++, a_count, strideTl,
+				(void*)psTl, (void*)vsTl, (void*)ilTl,
+				dsvViewFmt, dsvResFmt, dstencilEnable, dcmp, voffTl, ioffTl);
+
+			if (psTl) psTl->Release();
+			if (vsTl) vsTl->Release();
+			if (ilTl) ilTl->Release();
+			if (vbTl) vbTl->Release();
+			if (ibTl) ibTl->Release();
+		}
+
 		// 受控抑制：F8 启动约 60 帧窗口，只跳过「144 索引 + PS 非空 + stride 20」
 		// 的颜色 pass draw，用于 A/B 对比身份。
 		if (s_suppressActive.load() && a_count == 144 && g_ads.load()) {
@@ -1126,6 +1197,23 @@ float4 main(float4 pos : SV_POSITION) : SV_Target {
 			Log("[SUPPRESS] armed: 60-frame window for 144-index color draw");
 		}
 		s_lastF8 = f8;
+
+		// F9：启动 Gate A 时间线诊断窗口（60 帧）
+		static bool s_lastF9 = false;
+		const bool f9 = (GetAsyncKeyState(VK_F9) & 0x8000) != 0;
+		if (f9 && !s_lastF9) {
+			s_timelineFrames.store(60);
+			s_timelineActive.store(true);
+			s_timelineSeq = 0;
+			Log("[TL] window armed: 60 frames, will log 96/144/384 draws in order");
+		}
+		s_lastF9 = f9;
+		if (s_timelineActive.load()) {
+			if (s_timelineFrames.fetch_sub(1) <= 0) {
+				s_timelineActive.store(false);
+				Log("[TL] window closed, total draws logged=%d", s_timelineSeq);
+			}
+		}
 
 		ImGui_Render(a_sc);
 
