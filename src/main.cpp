@@ -364,6 +364,10 @@ namespace RC
 	static std::atomic<int>  s_timelineFrames{ 0 };
 	static int s_timelineSeq = 0;
 	static int s_dsProbeCount = 0;
+	static bool s_frameStats = true;
+	static int s_frameDraws = 0;
+	static int s_frameStencilOn = 0;
+	static int s_stencilOnLog = 0;
 
 	// ======================= 红/绿诊断（确定哪片是目镜） =======================
 	// 把 Lense 的 384 索引拆成两次绘制：B(index 0..191) 染红，A(index 192..383) 染绿。
@@ -998,26 +1002,28 @@ float4 main(float4 pos : SV_POSITION) : SV_Target {
 		}
 
 		// 状态对照：抓普通几何（非 384）的 DepthStencil 状态，判断 REPLACE/ref=1 是否通用
-		if (g_ads.load() && s_dsProbeCount < 24 && a_count != 384 && a_count != 96) {
-			ID3D11PixelShader* psO = nullptr;
-			a_ctx->PSGetShader(&psO, nullptr, nullptr);
-			// 只抓颜色 pass（PS 非空）的普通几何
-			if (psO) {
-				ID3D11DepthStencilState* dsO = nullptr;
-				UINT refO = 0;
-				a_ctx->OMGetDepthStencilState(&dsO, &refO);
-				if (dsO) {
-					D3D11_DEPTH_STENCIL_DESC dO{};
-					dsO->GetDesc(&dO);
-					Log("[DSC] color#%d count=%u | stencilEn=%d func=%d pass=%d wmask=0x%X ref=%u | depthEn=%d",
-						s_dsProbeCount, a_count,
-						dO.StencilEnable, (int)dO.FrontFace.StencilFunc, (int)dO.FrontFace.StencilPassOp,
-						dO.StencilWriteMask, refO, dO.DepthEnable);
-					s_dsProbeCount++;
-					dsO->Release();
+		// 全帧统计：每帧所有 draw 的 stencil 状态
+		if (g_ads.load() && s_frameStats) {
+			s_frameDraws++;
+			ID3D11DepthStencilState* dsS = nullptr;
+			UINT refS = 0;
+			a_ctx->OMGetDepthStencilState(&dsS, &refS);
+			if (dsS) {
+				D3D11_DEPTH_STENCIL_DESC dS{};
+				dsS->GetDesc(&dS);
+				if (dS.StencilEnable) {
+					s_frameStencilOn++;
+					// 详细记录所有 stencil 启用的 draw（限量）
+					if (s_stencilOnLog < 30) {
+						s_stencilOnLog++;
+						Log("[STE] #%d count=%u | func=%d pass=%d wmask=0x%X ref=%u | depthEn=%d dwrite=%d",
+							s_stencilOnLog, a_count,
+							(int)dS.FrontFace.StencilFunc, (int)dS.FrontFace.StencilPassOp,
+							dS.StencilWriteMask, refS, dS.DepthEnable, (int)dS.DepthWriteMask);
+					}
 				}
+				dsS->Release();
 			}
-			if (psO) psO->Release();
 		}
 
 		// 红/绿诊断：把 384（Lense）拆成两片分别染色，确定哪片是目镜
@@ -1615,6 +1621,16 @@ float4 main(float4 pos : SV_POSITION) : SV_Target {
 		}
 
 		ImGui_Render(a_sc);
+
+		// 每帧摘要
+		if (s_frameStats && s_frameDraws > 0) {
+			static int s_frameNo = 0;
+			if (s_frameNo < 60) {
+				Log("[FRAME] #%d draws=%d stencilOn=%d", s_frameNo++, s_frameDraws, s_frameStencilOn);
+			}
+			s_frameDraws = 0;
+			s_frameStencilOn = 0;
+		}
 
 		// 截图：F6 手动；抑制窗口内每 60 帧自动一张
 		{
