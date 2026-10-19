@@ -53,6 +53,7 @@ namespace RC
 	extern bool  g_diagBOnly;     // 只画 B 组（index 0..191）染红
 	extern bool  g_diagCross;     // 十字诊断：B 组几何 + 屏幕中心十字
 	extern bool  g_screenOverlay; // 旧的屏幕层准星（红圈+十字）
+	extern bool  g_skipDepthWrite; // r166: Lense 深度预 pass 不写深度（验证深度因果）
 	extern int   g_crossTarget;   // 0=both, 1=only voffA(7670272), 2=only voffB(12181248), 3=none
 	extern float g_crossOffX;     // 诊断用十字偏移 X
 	extern float g_crossOffY;     // 诊断用十字偏移 Y
