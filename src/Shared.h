@@ -53,6 +53,8 @@ namespace RC
 	extern bool  g_diagBOnly;     // 只画 B 组（index 0..191）染红
 	extern bool  g_diagCross;     // 十字诊断：B 组几何 + 屏幕中心十字
 	extern bool  g_screenOverlay; // 旧的屏幕层准星（红圈+十字）
+	extern float g_crossOffX;     // 诊断用十字偏移 X
+	extern float g_crossOffY;     // 诊断用十字偏移 Y
 	extern bool  g_diagAOnly;     // 只画 A 组（index 192..383）染绿
 	extern bool  g_forceLense;    // 强制 Lense:0 可见（覆盖 STS 剔除）
 	// 逐节点强制显示 ScopeNormal 下的子节点（默认被 STS 剔除）
