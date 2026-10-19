@@ -386,6 +386,11 @@ namespace RC
 	static ID3D11DepthStencilState* s_dsNoStencil = nullptr;
 	static ID3D11DepthStencilState* s_dsNoDepthWrite = nullptr;   // r166: 不写深度
 	static ID3D11DepthStencilState* s_dsNoDepthTest = nullptr;   // r168: 完全不测深度
+	// r169: 目镜 mask 资源
+	static ID3D11Texture2D* s_maskTex = nullptr;
+	static ID3D11RenderTargetView* s_maskRTV = nullptr;
+	static ID3D11PixelShader* s_psMask = nullptr;
+	ID3D11ShaderResourceView* g_maskSRV = nullptr;
 
 	struct CrossCb { float centerX, centerY, halfW, halfH; };
 	static ID3D11PixelShader* s_psGreen = nullptr;
@@ -457,6 +462,35 @@ float4 main(float4 pos : SV_POSITION) : SV_Target {
 		dsN.DepthFunc = D3D11_COMPARISON_ALWAYS;
 		dsN.StencilEnable = FALSE;
 		a_dev->CreateDepthStencilState(&dsN, &s_dsNoDepthTest);
+
+		// r169: 目镜 mask —— R8 纹理，尺寸先用 1920x1080（与 Lense 的 viewport 一致）
+		{
+			D3D11_TEXTURE2D_DESC mtd{};
+			mtd.Width = 1920;
+			mtd.Height = 1080;
+			mtd.MipLevels = 1;
+			mtd.ArraySize = 1;
+			mtd.Format = DXGI_FORMAT_R8_UNORM;
+			mtd.SampleDesc.Count = 1;
+			mtd.Usage = D3D11_USAGE_DEFAULT;
+			mtd.BindFlags = D3D11_BIND_RENDER_TARGET | D3D11_BIND_SHADER_RESOURCE;
+			if (SUCCEEDED(a_dev->CreateTexture2D(&mtd, nullptr, &s_maskTex)) && s_maskTex) {
+				a_dev->CreateRenderTargetView(s_maskTex, nullptr, &s_maskRTV);
+				a_dev->CreateShaderResourceView(s_maskTex, nullptr, &g_maskSRV);
+			}
+
+			// mask PS：覆盖即写 1
+			const char* kMaskPs = R"(
+float4 main() : SV_Target { return float4(1.0, 1.0, 1.0, 1.0); }
+)";
+			ID3DBlob* mb = nullptr; ID3DBlob* me = nullptr;
+			if (SUCCEEDED(D3DCompile(kMaskPs, strlen(kMaskPs), nullptr, nullptr, nullptr, "main", "ps_5_0", 0, 0, &mb, &me)) && mb) {
+				a_dev->CreatePixelShader(mb->GetBufferPointer(), mb->GetBufferSize(), nullptr, &s_psMask);
+				mb->Release();
+			}
+			if (me) me->Release();
+			Log("[MASK] tex=%d rtv=%d srv=%d ps=%d", s_maskTex ? 1 : 0, s_maskRTV ? 1 : 0, g_maskSRV ? 1 : 0, s_psMask ? 1 : 0);
+		}
 
 		Log("[DIAG] cross ps=%d cb=%d dsNoStencil=%d dsNoDepthWrite=%d",
 			s_psCross ? 1 : 0, s_cbCross ? 1 : 0, s_dsNoStencil ? 1 : 0, s_dsNoDepthWrite ? 1 : 0);
@@ -1138,6 +1172,54 @@ float4 main(float4 pos : SV_POSITION) : SV_Target {
 				}
 			}
 			if (vbP) vbP->Release();
+		}
+
+		// ======================= r169: mask 模式 =======================
+		// 保留原始材质绘制，再追加一次 B 组绘制写进 R8 mask
+		if (g_maskEnabled && g_ads.load() && a_count == 384 && a_start == 0 && s_maskRTV && s_psMask) {
+			ID3D11PixelShader* psM = nullptr;
+			a_ctx->PSGetShader(&psM, nullptr, nullptr);
+			const bool colorM = (psM != nullptr);
+			if (psM) psM->Release();
+
+			ID3D11Buffer* vbM = nullptr;
+			UINT strideM = 0, voffM = 0;
+			a_ctx->IAGetVertexBuffers(0, 1, &vbM, &strideM, &voffM);
+			if (vbM) vbM->Release();
+
+			if (colorM && strideM == 20) {
+				// 1) 原始绘制
+				s_origDrawIndexed(a_ctx, a_count, a_start, a_base);
+
+				// 2) 追加 mask 绘制（只画 B 组 0..191）
+				ID3D11RenderTargetView* oldRTVs[8] = {};
+				ID3D11DepthStencilView* oldDSV = nullptr;
+				a_ctx->OMGetRenderTargets(8, oldRTVs, &oldDSV);
+				ID3D11PixelShader* oldPS = nullptr;
+				a_ctx->PSGetShader(&oldPS, nullptr, nullptr);
+				ID3D11DepthStencilState* oldDS = nullptr;
+				UINT oldRef = 0;
+				a_ctx->OMGetDepthStencilState(&oldDS, &oldRef);
+
+				const float clearM[4] = { 0.0f, 0.0f, 0.0f, 0.0f };
+				a_ctx->ClearRenderTargetView(s_maskRTV, clearM);
+				ID3D11RenderTargetView* maskList[1] = { s_maskRTV };
+				a_ctx->OMSetRenderTargets(1, maskList, nullptr);
+				a_ctx->PSSetShader(s_psMask, nullptr, 0);
+				a_ctx->OMSetDepthStencilState(s_dsNoDepthTest, 0);
+				s_origDrawIndexed(a_ctx, 192, a_start, a_base);
+
+				// 3) 恢复
+				a_ctx->OMSetRenderTargets(8, oldRTVs, oldDSV);
+				if (oldPS) { a_ctx->PSSetShader(oldPS, nullptr, 0); oldPS->Release(); }
+				if (oldDS) { a_ctx->OMSetDepthStencilState(oldDS, oldRef); oldDS->Release(); }
+				for (int i = 0; i < 8; ++i) if (oldRTVs[i]) oldRTVs[i]->Release();
+				if (oldDSV) oldDSV->Release();
+
+				static int s_maskLog = 0;
+				if (s_maskLog < 4) { s_maskLog++; Log("[MASK] B-group drawn into mask (voff=%u)", voffM); }
+				return;
+			}
 		}
 
 		// ======================= r166: 深度预 pass 不写深度（验证深度因果） =======================
