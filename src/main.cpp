@@ -1099,9 +1099,20 @@ float4 main(float4 pos : SV_POSITION) : SV_Target {
 				const float cy = vp.TopLeftY + vp.Height * 0.5f;
 
 				static int s_crossLog = 0;
-				if (s_crossLog < 3) {
+				if (s_crossLog < 6) {
 					s_crossLog++;
-					Log("[CROSS] vp=(%.0f,%.0f %.0fx%.0f) center=(%.1f,%.1f)", vp.TopLeftX, vp.TopLeftY, vp.Width, vp.Height, cx, cy);
+					// 记录 voff / ioff / base，区分命中的是哪次 384
+					ID3D11Buffer* vbL = nullptr;
+					UINT strideL = 0, voffL = 0;
+					a_ctx->IAGetVertexBuffers(0, 1, &vbL, &strideL, &voffL);
+					if (vbL) vbL->Release();
+					ID3D11Buffer* ibL = nullptr;
+					DXGI_FORMAT fmtL = DXGI_FORMAT_UNKNOWN;
+					UINT ioffL = 0;
+					a_ctx->IAGetIndexBuffer(&ibL, &fmtL, &ioffL);
+					if (ibL) ibL->Release();
+					Log("[CROSS] vp=(%.0f,%.0f %.0fx%.0f) center=(%.1f,%.1f) | voff=%u ioff=%u stride=%u base=%d",
+						vp.TopLeftX, vp.TopLeftY, vp.Width, vp.Height, cx, cy, voffL, ioffL, strideL, a_base);
 				}
 
 				// 写 CB（失败则回退原始绘制，不用过期常量）
