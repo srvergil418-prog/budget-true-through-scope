@@ -996,14 +996,16 @@ float4 main(float4 pos : SV_POSITION) : SV_Target {
 
 		// 照 TTS 的 IsTargetDrawCall：用「索引数 + 顶点 stride」双重匹配。
 		// 光比索引数会误伤（96 有两个几何体、384 和天空撞车），
-		// stride 才是我们圆盘特有的指纹（TTS 的 TARGET_STRIDE = 28）。
+		// stride 才是我们圆盘特有的指纹。TTS 用 28，我们的 LensCircle 实测是 24。
 		if (s_diskIndexCount > 0 && a_count == s_diskIndexCount && g_ads.load()) {
 			ID3D11Buffer* vb = nullptr;
 			UINT stride = 0, off = 0;
 			a_ctx->IAGetVertexBuffers(0, 1, &vb, &stride, &off);
 			if (vb) vb->Release();
 
-			if (stride == 28) {
+			// r99 时间线实测：自挂 LensCircle.nif 的 stride 是 24。
+			// 之前写 28 命中的是另一个 96-index 几何体（#8，depthFunc=2）。
+			if (stride == 24) {
 				static int s_hitLog = 0;
 				if (s_hitLog < 5) {
 					s_hitLog++;
