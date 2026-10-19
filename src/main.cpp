@@ -357,6 +357,14 @@ namespace RC
 	// 一次性捕获 ScopeFade 候选 draw 的 VB/IB 身份与原始数据。
 	// 遵守约束：不 Map 游戏缓冲（用 staging + CopyResource）、只捕获一次、
 	// 不逐帧、不改变任何渲染状态、释放所有 COM 引用。
+	// ======================= 受控抑制实验（身份验证） =======================
+	// 按 F8 启动一个约 60 帧的抑制窗口：只跳过「144 索引 + PS 非空 + stride 20」
+	// 的颜色 pass draw。用途是 A/B 对比确认该 draw 是否就是 ScopeFade。
+	// 规则：默认关闭、有明确帧数上限、到期自动恢复、不改任何渲染状态。
+	static std::atomic<bool> s_suppressActive{ false };
+	static std::atomic<int>  s_suppressFrames{ 0 };
+	static std::atomic<int>  s_suppressSkipped{ 0 };
+
 	static bool s_fadeCaptured = false;
 
 	static void DumpIlFor(void* a_ptr);
@@ -788,16 +796,28 @@ float4 main(float4 pos : SV_POSITION) : SV_Target {
 
 	static void STDMETHODCALLTYPE hkDrawIndexed(ID3D11DeviceContext* a_ctx, UINT a_count, UINT a_start, INT a_base)
 	{
-		// 受控抑制：F8 武装后，跳过下一次 144 索引的颜色 draw（仅一次）
-		if (s_suppressArmed && !s_suppressFired && a_count == 144 && g_ads.load()) {
+		// 受控抑制：F8 启动约 60 帧窗口，只跳过「144 索引 + PS 非空 + stride 20」
+		// 的颜色 pass draw，用于 A/B 对比身份。
+		if (s_suppressActive.load() && a_count == 144 && g_ads.load()) {
 			ID3D11PixelShader* psChk = nullptr;
 			a_ctx->PSGetShader(&psChk, nullptr, nullptr);
 			if (psChk) {
 				psChk->Release();
-				s_suppressArmed = false;
-				s_suppressFired = true;
-				Log("[SUPPRESS] skipped one 144-index color draw (identity test)");
-				return;   // 跳过这一次绘制
+				ID3D11Buffer* vbChk = nullptr;
+				UINT strideChk = 0, offChk = 0;
+				a_ctx->IAGetVertexBuffers(0, 1, &vbChk, &strideChk, &offChk);
+				if (vbChk) vbChk->Release();
+				if (strideChk == 20) {
+					const int left = s_suppressFrames.fetch_sub(1) - 1;
+					s_suppressSkipped.fetch_add(1);
+					if (left <= 0) {
+						s_suppressActive.store(false);
+						Log("[SUPPRESS] window closed, total skipped=%d", s_suppressSkipped.load());
+					} else if (left % 10 == 0) {
+						Log("[SUPPRESS] skipping, frames left=%d", left);
+					}
+					return;   // 跳过这次绘制
+				}
 			}
 		}
 		// 实验 A：记录后续所有 144 候选 draw 的轻量元数据（最多 8 次，不拷贝缓冲），
@@ -949,12 +969,6 @@ float4 main(float4 pos : SV_POSITION) : SV_Target {
 		}
 	}
 
-	// ======================= 受控抑制实验（身份验证） =======================
-	// 按 F8 武装，下一次「144 索引 + PS 非空」的颜色 draw 被跳过一次。
-	// 用途：确认该 draw 是否就是屏幕上的 ScopeFade 圆环。
-	// 规则：默认关闭、只命中一次、立即恢复、不改任何状态。
-	static bool s_suppressArmed = false;
-	static bool s_suppressFired = false;
 
 	// ======================= 主线程每帧 =======================
 	using PCUpdateMainThread_t = void(__fastcall*)(RE::PlayerCharacter*);
@@ -1106,9 +1120,10 @@ float4 main(float4 pos : SV_POSITION) : SV_Target {
 		static bool s_lastF8 = false;
 		const bool f8 = (GetAsyncKeyState(VK_F8) & 0x8000) != 0;
 		if (f8 && !s_lastF8) {
-			s_suppressArmed = true;
-			s_suppressFired = false;
-			Log("[SUPPRESS] armed: next 144-index color draw will be skipped once");
+			s_suppressFrames.store(60);
+			s_suppressSkipped.store(0);
+			s_suppressActive.store(true);
+			Log("[SUPPRESS] armed: 60-frame window for 144-index color draw");
 		}
 		s_lastF8 = f8;
 
