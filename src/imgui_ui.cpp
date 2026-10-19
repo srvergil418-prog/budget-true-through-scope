@@ -30,6 +30,7 @@ namespace RC
 	bool  g_sup384B = false;
 	bool  g_supNif = false;
 	bool  g_supLense = false;
+	bool  g_diagSplit = false;
 	bool  g_forceLense = false;
 	bool  g_forcePoly = false;
 	bool  g_forceMount1 = false;
@@ -147,7 +148,7 @@ namespace RC
 			ImGui::Checkbox("FORCE polySurface22 visible", &g_forcePoly);
 			ImGui::Checkbox("FORCE Mount1 visible", &g_forceMount1);
 			ImGui::Checkbox("FORCE Mount2 visible", &g_forceMount2);
-			ImGui::Checkbox("skip LENSE (both 384)", &g_supLense);
+			ImGui::Checkbox("skip LENSE (both 384)", &g_supLense);`r`n`t`t`tImGui::Checkbox("DIAG red/green split (B=red A=green)", &g_diagSplit);
 			ImGui::Checkbox("skip 144 (ScopeFade)", &g_sup144);
 			ImGui::Checkbox("skip 384 A (low voff)", &g_sup384A);
 			ImGui::Checkbox("skip 384 B (high voff)", &g_sup384B);
