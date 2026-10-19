@@ -782,11 +782,13 @@ float4 main(float4 pos : SV_POSITION) : SV_Target {
 			UINT oldStencilRef = 0;
 			a_ctx->OMGetDepthStencilState(&oldDS, &oldStencilRef);
 
-			// 保存 SRV / Sampler —— 只恢复 PS 不够，泄漏的 SRV 会让天空等后续绘制采样到我们的贴图
+			// 保存 SRV / Sampler / CB —— 只恢复 PS 不够，任何一项泄漏都会污染后续绘制
 			ID3D11ShaderResourceView* oldSRV = nullptr;
 			a_ctx->PSGetShaderResources(0, 1, &oldSRV);
 			ID3D11SamplerState* oldSamp = nullptr;
 			a_ctx->PSGetSamplers(0, 1, &oldSamp);
+			ID3D11Buffer* oldCB = nullptr;
+			a_ctx->PSGetConstantBuffers(0, 1, &oldCB);
 
 			a_ctx->PSSetShader(s_ps, nullptr, 0);
 			a_ctx->PSSetConstantBuffers(0, 1, &s_cb);
@@ -796,7 +798,7 @@ float4 main(float4 pos : SV_POSITION) : SV_Target {
 
 			s_origDrawIndexed(a_ctx, a_count, a_start, a_base);
 
-			// 恢复：PS + SRV + Sampler 都要还原，否则会污染后续绘制（天空变绿就是这么来的）
+			// 恢复：PS + SRV + Sampler + CB 全部还原，否则会污染后续绘制（天空变绿就是这么来的）
 			if (oldPS) {
 				a_ctx->PSSetShader(oldPS, nullptr, 0);
 				oldPS->Release();
@@ -809,6 +811,9 @@ float4 main(float4 pos : SV_POSITION) : SV_Target {
 			if (oldSRV) oldSRV->Release();
 			a_ctx->PSSetSamplers(0, 1, &oldSamp);
 			if (oldSamp) oldSamp->Release();
+			// CB 恢复：slot 0 被换成我们的 Cb，不还回去后续 PS 会拿到错误参数
+			a_ctx->PSSetConstantBuffers(0, 1, &oldCB);
+			if (oldCB) oldCB->Release();
 
 			if (oldDS) { a_ctx->OMSetDepthStencilState(oldDS, oldStencilRef); oldDS->Release(); }
 		}
