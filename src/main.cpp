@@ -460,6 +460,23 @@ float4 main(float4 pos : SV_POSITION) : SV_Target {
 	static bool s_fadeCaptured = false;
 	static bool s_lenseCaptured = false;   // 384（Lense:0）的一次性捕获
 
+	// ======================= r163: P1/P2 每条 384 draw 的身份槽位 =======================
+	// 声明提前：draw hook 在本段之前就要用到它们，实现放在文件后半部分。
+	struct LenseDrawSlot
+	{
+		ID3D11Buffer* vb = nullptr;
+		UINT voff = 0;
+		bool used = false;
+		bool captured = false;
+	};
+	static LenseDrawSlot s_lenseSlots[4];
+	static std::vector<uint32_t> s_slotIdx[4];
+	static std::vector<float>    s_slotPos[4];   // x,y,z triples
+	static int s_lenseSlotHit = 0;
+
+	static int FindOrAddLenseSlot(ID3D11Buffer* a_vb, UINT a_voff);
+	static void ExamineLenseDraw(ID3D11DeviceContext* a_ctx, UINT a_count, UINT a_start, INT a_base, int a_slot);
+
 	static void DumpIlFor(void* a_ptr);
 
 	static void CaptureScopeFade(ID3D11DeviceContext* a_ctx, UINT a_count, UINT a_start, INT a_base)
@@ -1078,6 +1095,29 @@ float4 main(float4 pos : SV_POSITION) : SV_Target {
 			}
 		}
 
+		// ======================= r163: 每条 384 颜色 draw 各取证一次 =======================
+		// 按 (VB 指针, voff) 去重，最多 4 条；深度预 pass（PS=null）不取。
+		// 必须在十字分支之前，因为十字会 return。
+		if (g_ads.load() && a_count == 384 && a_start == 0) {
+			ID3D11PixelShader* psP = nullptr;
+			a_ctx->PSGetShader(&psP, nullptr, nullptr);
+			const bool colorP = (psP != nullptr);
+			if (psP) psP->Release();
+			ID3D11Buffer* vbP = nullptr;
+			UINT strideP = 0, voffP = 0;
+			a_ctx->IAGetVertexBuffers(0, 1, &vbP, &strideP, &voffP);
+			if (colorP && strideP == 20) {
+				const int slot = FindOrAddLenseSlot(vbP, voffP);
+				if (slot >= 0 && !s_lenseSlots[slot].captured) {
+					s_lenseSlots[slot].captured = true;
+					++s_lenseSlotHit;
+					Log("[P0] 384 color draw #%d new identity -> slot %d (voff=%u)", s_lenseSlotHit, slot, voffP);
+					ExamineLenseDraw(a_ctx, a_count, a_start, a_base, slot);
+				}
+			}
+			if (vbP) vbP->Release();
+		}
+
 		// 全帧统计：每帧所有 draw 的 stencil 状态
 		if (g_ads.load() && s_frameStats) {
 			s_frameDraws++;
@@ -1110,8 +1150,14 @@ float4 main(float4 pos : SV_POSITION) : SV_Target {
 			UINT strideT = 0;
 			a_ctx->IAGetVertexBuffers(0, 1, &vbT, &strideT, &voffTgt);
 			if (vbT) vbT->Release();
-			const bool isA = (voffTgt == 7670272u);
-			const bool isB = (voffTgt == 12181248u);
+			// r163：不再硬编码具体 voff（缓冲区池重新分配会让数值漂移）。
+			// 同一 VB 内两条 384 draw 的偏移差一个量级（实测低 ~7.6e6 / 高 ~1.2e7），
+			// 用「低偏移 = A / 高偏移 = B」判定，并把实际值打出来供核对。
+			const bool isA = (voffTgt < 10000000u);
+			const bool isB = (voffTgt >= 10000000u);
+			static UINT s_seenVoffA = 0, s_seenVoffB = 0;
+			if (isA && voffTgt != s_seenVoffA) { s_seenVoffA = voffTgt; Log("[CROSS] A voff=%u (low)", voffTgt); }
+			if (isB && voffTgt != s_seenVoffB) { s_seenVoffB = voffTgt; Log("[CROSS] B voff=%u (high)", voffTgt); }
 			const int tgt = g_crossTarget;
 			// 0=both  1=onlyA  2=onlyB  3=none
 			// 4=A画十字+B跳过  5=B画十字+A跳过
@@ -1138,6 +1184,9 @@ float4 main(float4 pos : SV_POSITION) : SV_Target {
 				return;
 			}
 			if (!wantCross) {
+				// P3：none/单侧模式下确认「确实原样转发、没有接管」
+				static int s_fwdLog = 0;
+				if (s_fwdLog < 6) { s_fwdLog++; Log("[CROSS] forward color voff=%u (mode %d) - untouched", voffTgt, tgt); }
 				s_origDrawIndexed(a_ctx, a_count, a_start, a_base);
 				return;
 			}
@@ -1449,6 +1498,241 @@ float4 main(float4 pos : SV_POSITION) : SV_Target {
 			return;
 		}
 		Log("[CAP] IL desc for %p: NOT FOUND in records (created before hook)", a_ptr);
+	}
+
+	// ======================= r163: P1/P2 两条 384 draw 的身份与几何 =======================
+	// 背景：r155/r162 的日志显示每帧有两条 384 draw（voff 7670272 / 12181248），
+	// 但 CaptureScopeFade 只被调用一次，所以从来没有同时拿到两条的完整数据。
+	// 这里按 (VB 指针, voff) 做身份去重，每个身份只取证一次，最多 4 个。
+	// 只读：不动任何渲染状态，所有 COM 引用都释放。
+	// （struct / 静态槽位 / 原型已在文件前部声明）
+	static float HalfToFloat(uint16_t h)
+	{
+		const uint32_t sign = (h & 0x8000u) ? 0x80000000u : 0u;
+		uint32_t exp = (h >> 10) & 0x1Fu;
+		uint32_t man = h & 0x3FFu;
+		uint32_t f = 0;
+		if (exp == 0) {
+			if (man == 0) {
+				f = sign;
+			} else {
+				exp = 1;
+				while ((man & 0x400u) == 0) { man <<= 1; --exp; }
+				man &= 0x3FFu;
+				f = sign | ((exp + 127u - 15u) << 23) | (man << 13);
+			}
+		} else if (exp == 31) {
+			f = sign | 0x7F800000u | (man << 13);
+		} else {
+			f = sign | ((exp + 127u - 15u) << 23) | (man << 13);
+		}
+		float out;
+		memcpy(&out, &f, 4);
+		return out;
+	}
+
+	static int FindOrAddLenseSlot(ID3D11Buffer* a_vb, UINT a_voff)
+	{
+		for (int i = 0; i < 4; ++i) {
+			if (s_lenseSlots[i].used && s_lenseSlots[i].vb == a_vb && s_lenseSlots[i].voff == a_voff) return i;
+		}
+		for (int i = 0; i < 4; ++i) {
+			if (!s_lenseSlots[i].used) {
+				s_lenseSlots[i].used = true;
+				s_lenseSlots[i].vb = a_vb;
+				s_lenseSlots[i].voff = a_voff;
+				return i;
+			}
+		}
+		return -1;
+	}
+
+	// 一次只读取证：身份 + 索引 + 顶点（POSITION0 = R16G16B16A16_FLOAT @ offset 0）
+	static void ExamineLenseDraw(ID3D11DeviceContext* a_ctx, UINT a_count, UINT a_start, INT a_base, int a_slot)
+	{
+		ID3D11Device* dev = nullptr;
+		a_ctx->GetDevice(&dev);
+		if (!dev) { Log("[P1] GetDevice FAILED"); return; }
+
+		ID3D11Buffer* vb = nullptr;
+		UINT stride = 0, voff = 0;
+		a_ctx->IAGetVertexBuffers(0, 1, &vb, &stride, &voff);
+		ID3D11Buffer* ib = nullptr;
+		DXGI_FORMAT ibFmt = DXGI_FORMAT_UNKNOWN;
+		UINT ioff = 0;
+		a_ctx->IAGetIndexBuffer(&ib, &ibFmt, &ioff);
+
+		D3D11_BUFFER_DESC vbd{}, ibd{};
+		if (vb) vb->GetDesc(&vbd);
+		if (ib) ib->GetDesc(&ibd);
+
+		ID3D11VertexShader* vs = nullptr;
+		ID3D11PixelShader* ps = nullptr;
+		ID3D11InputLayout* il = nullptr;
+		a_ctx->VSGetShader(&vs, nullptr, nullptr);
+		a_ctx->PSGetShader(&ps, nullptr, nullptr);
+		a_ctx->IAGetInputLayout(&il);
+
+		ID3D11RenderTargetView* rtvs[8] = {};
+		ID3D11DepthStencilView* dsv = nullptr;
+		a_ctx->OMGetRenderTargets(8, rtvs, &dsv);
+		int rtvCount = 0;
+		for (int i = 0; i < 8; ++i) if (rtvs[i]) ++rtvCount;
+
+		ID3D11RasterizerState* rs = nullptr;
+		a_ctx->RSGetState(&rs);
+		int cull = -1;
+		if (rs) { D3D11_RASTERIZER_DESC rd{}; rs->GetDesc(&rd); cull = (int)rd.CullMode; }
+
+		Log("[P1] slot=%d count=%u start=%u base=%d | stride=%u voff=%u | ioff=%u ifmt=%d",
+			a_slot, a_count, a_start, a_base, stride, voff, ioff, (int)ibFmt);
+		Log("[P1] slot=%d VB=%p bytes=%u | IB=%p bytes=%u",
+			a_slot, (void*)vb, vbd.ByteWidth, (void*)ib, ibd.ByteWidth);
+		Log("[P1] slot=%d VS=%p PS=%p IL=%p | RTVcount=%d DSV=%p cull=%d",
+			a_slot, (void*)vs, (void*)ps, (void*)il, rtvCount, (void*)dsv, cull);
+
+		if (vs) vs->Release();
+		if (ps) ps->Release();
+		if (il) il->Release();
+		if (rs) rs->Release();
+		for (int i = 0; i < 8; ++i) if (rtvs[i]) rtvs[i]->Release();
+		if (dsv) dsv->Release();
+
+		// ---- P2a: 索引 ----
+		const UINT idxBytes = (ibFmt == DXGI_FORMAT_R32_UINT) ? 4u : 2u;
+		s_slotIdx[a_slot].clear();
+		if (ib && a_count > 0) {
+			const UINT readOff = ioff + a_start * idxBytes;
+			const UINT readBytes = a_count * idxBytes;
+			if (readOff + readBytes <= ibd.ByteWidth) {
+				D3D11_BUFFER_DESC sd{};
+				sd.ByteWidth = readBytes;
+				sd.Usage = D3D11_USAGE_STAGING;
+				sd.CPUAccessFlags = D3D11_CPU_ACCESS_READ;
+				ID3D11Buffer* stg = nullptr;
+				if (SUCCEEDED(dev->CreateBuffer(&sd, nullptr, &stg)) && stg) {
+					D3D11_BOX box{};
+					box.left = readOff; box.right = readOff + readBytes;
+					box.top = 0; box.bottom = 1; box.front = 0; box.back = 1;
+					a_ctx->CopySubresourceRegion(stg, 0, 0, 0, 0, ib, 0, &box);
+					D3D11_MAPPED_SUBRESOURCE ms{};
+					if (SUCCEEDED(a_ctx->Map(stg, 0, D3D11_MAP_READ, 0, &ms))) {
+						const auto* raw = (const uint8_t*)ms.pData;
+						UINT mn = 0xFFFFFFFFu, mx = 0;
+						std::vector<bool> seen;
+						UINT uniq = 0;
+						for (UINT i = 0; i < a_count; ++i) {
+							uint32_t v = (idxBytes == 4)
+								? *((const uint32_t*)(raw + i * 4))
+								: (uint32_t)(*((const uint16_t*)(raw + i * 2)));
+							s_slotIdx[a_slot].push_back(v);
+							if (v < mn) mn = v;
+							if (v > mx) mx = v;
+							if (v >= seen.size()) seen.resize(v + 1, false);
+							if (!seen[v]) { seen[v] = true; ++uniq; }
+						}
+						Log("[P2] slot=%d IDX count=%u min=%u max=%u unique=%u", a_slot, a_count, mn, mx, uniq);
+						// 索引前 36 个（12 个三角形）：直接看拓扑是否是「环」还是「盘」
+						char line[700]; int w = 0;
+						const UINT showN = (a_count < 36) ? a_count : 36;
+						for (UINT i = 0; i < showN; ++i) {
+							w += sprintf_s(line + w, sizeof(line) - w, "%u ", s_slotIdx[a_slot][i]);
+						}
+						Log("[P2] slot=%d IDX[0..%u] %s", a_slot, showN, line);
+						a_ctx->Unmap(stg, 0);
+					}
+					stg->Release();
+				}
+			}
+		}
+
+		// ---- P2b: 顶点（只有 stride=20 才按 POSITION0 = 4×half 解码）----
+		s_slotPos[a_slot].clear();
+		if (vb && stride >= 8) {
+			const UINT want = stride * 240;
+			const UINT readBytes = (vbd.ByteWidth < want) ? vbd.ByteWidth : want;
+			if (readBytes > 0 && voff + readBytes <= vbd.ByteWidth) {
+				D3D11_BUFFER_DESC sd{};
+				sd.ByteWidth = readBytes;
+				sd.Usage = D3D11_USAGE_STAGING;
+				sd.CPUAccessFlags = D3D11_CPU_ACCESS_READ;
+				ID3D11Buffer* stg = nullptr;
+				if (SUCCEEDED(dev->CreateBuffer(&sd, nullptr, &stg)) && stg) {
+					D3D11_BOX box{};
+					box.left = voff; box.right = voff + readBytes;
+					box.top = 0; box.bottom = 1; box.front = 0; box.back = 1;
+					a_ctx->CopySubresourceRegion(stg, 0, 0, 0, 0, vb, 0, &box);
+					D3D11_MAPPED_SUBRESOURCE ms{};
+					if (SUCCEEDED(a_ctx->Map(stg, 0, D3D11_MAP_READ, 0, &ms))) {
+						const auto* raw = (const uint8_t*)ms.pData;
+						const UINT nVerts = readBytes / stride;
+						float lo[3] = { 1e30f, 1e30f, 1e30f };
+						float hi[3] = { -1e30f, -1e30f, -1e30f };
+						for (UINT v = 0; v < nVerts; ++v) {
+							const uint16_t* hp = (const uint16_t*)(raw + v * stride);
+							float p[3] = { HalfToFloat(hp[0]), HalfToFloat(hp[1]), HalfToFloat(hp[2]) };
+							for (int k = 0; k < 3; ++k) {
+								if (p[k] < lo[k]) lo[k] = p[k];
+								if (p[k] > hi[k]) hi[k] = p[k];
+								s_slotPos[a_slot].push_back(p[k]);
+							}
+						}
+						Log("[P2] slot=%d VERT n=%u stride=%u bbox x[%.2f..%.2f] y[%.2f..%.2f] z[%.2f..%.2f]",
+							a_slot, nVerts, stride,
+							lo[0], hi[0], lo[1], hi[1], lo[2], hi[2]);
+
+						// 按「最分散的轴」分层：回答「是不是多层同心环」
+						int axis = 0;
+						for (int k = 1; k < 3; ++k) if ((hi[k] - lo[k]) > (hi[axis] - lo[axis])) axis = k;
+						const char axName[3] = { 'X', 'Y', 'Z' };
+						float layerLo = 1e30f, layerHi = -1e30f;
+						UINT layerN = 0, layerNo = 0;
+						float rMin = 1e30f, rMax = -1e30f;
+						auto flushLayer = [&]() {
+							if (layerN == 0) return;
+							Log("[P2] slot=%d  layer#%u %c in [%.2f..%.2f] n=%u  radial r[%.2f..%.2f]",
+								a_slot, layerNo, axName[axis], layerLo, layerHi, layerN, rMin, rMax);
+							++layerNo;
+							layerN = 0; rMin = 1e30f; rMax = -1e30f;
+						};
+						for (UINT v = 0; v < nVerts; ++v) {
+							const float* p = &s_slotPos[a_slot][v * 3];
+							const float a = p[axis];
+							if (layerN > 0 && fabsf(a - layerLo) <= 1.0f) {
+								// 同一层
+							} else if (layerN > 0 && fabsf(a - layerHi) <= 1.0f) {
+								// 同一层
+							} else {
+								flushLayer();
+								layerLo = a; layerHi = a;
+							}
+							if (a < layerLo) layerLo = a;
+							if (a > layerHi) layerHi = a;
+							++layerN;
+							float r = 0.0f;
+							for (int k = 0; k < 3; ++k) if (k != axis) r += p[k] * p[k];
+							r = sqrtf(r);
+							if (r < rMin) rMin = r;
+							if (r > rMax) rMax = r;
+						}
+						flushLayer();
+						a_ctx->Unmap(stg, 0);
+					}
+					stg->Release();
+				}
+			}
+		}
+
+		// ---- P2c: 与前面已捕获的 slot 对比 ----
+		for (int s = 0; s < a_slot; ++s) {
+			if (!s_lenseSlots[s].captured) continue;
+			const bool sameIdx = (!s_slotIdx[s].empty() && s_slotIdx[s] == s_slotIdx[a_slot]);
+			bool samePos = (!s_slotPos[s].empty() && s_slotPos[s] == s_slotPos[a_slot]);
+			Log("[P2] slot=%d vs slot=%d: idxSame=%d(%zu/%zu) posSame=%d(%zu/%zu)",
+				a_slot, s, sameIdx ? 1 : 0, s_slotIdx[s].size(), s_slotIdx[a_slot].size(),
+				samePos ? 1 : 0, s_slotPos[s].size() / 3, s_slotPos[a_slot].size() / 3);
+		}
+		Log("[P1] slot=%d === capture done ===", a_slot);
 	}
 
 	// ======================= ScopeNormal 子树递归枚举 =======================
