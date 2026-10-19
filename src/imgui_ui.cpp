@@ -29,6 +29,8 @@ namespace RC
 	bool  g_sup384A = false;
 	bool  g_sup384B = false;
 	bool  g_supNif = false;
+	bool  g_supLense = false;
+	bool  g_forceLense = false;
 	bool  g_wantShot = false;
 
 	static bool s_init = false;
@@ -138,6 +140,8 @@ namespace RC
 
 			ImGui::Separator();
 			ImGui::Text("Debug: skip draws (persistent)");
+			ImGui::Checkbox("FORCE LENSE visible (undo STS cull)", &g_forceLense);
+			ImGui::Checkbox("skip LENSE (both 384)", &g_supLense);
 			ImGui::Checkbox("skip 144 (ScopeFade)", &g_sup144);
 			ImGui::Checkbox("skip 384 A (low voff)", &g_sup384A);
 			ImGui::Checkbox("skip 384 B (high voff)", &g_sup384B);
