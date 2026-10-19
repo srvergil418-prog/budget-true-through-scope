@@ -1072,16 +1072,22 @@ float4 main(float4 pos : SV_POSITION) : SV_Target {
 		}
 
 		// 十字诊断：用 B 组几何的投影覆盖范围限制准星（不写 stencil）
-		if (g_diagCross && a_count == 384 && g_ads.load() && s_psCross && s_cbCross) {
+		if (g_diagCross && a_count == 384 && a_start == 0 && g_ads.load() && s_psCross && s_cbCross) {
 			ID3D11PixelShader* psX = nullptr;
 			a_ctx->PSGetShader(&psX, nullptr, nullptr);
 			const bool colorX = (psX != nullptr);
 			if (psX) psX->Release();
 			if (colorX) {
-				// 取当前 viewport 中心
+				// 取当前 viewport 中心（必须校验有效性）
 				D3D11_VIEWPORT vp{};
 				UINT vpN = 1;
 				a_ctx->RSGetViewports(&vpN, &vp);
+				if (vpN == 0 || !(vp.Width > 0.0f) || !(vp.Height > 0.0f)) {
+					static int s_badVp = 0;
+					if (s_badVp < 3) { s_badVp++; Log("[CROSS] invalid viewport, skip"); }
+					s_origDrawIndexed(a_ctx, a_count, a_start, a_base);   // 回退原始
+					return;
+				}
 				const float cx = vp.TopLeftX + vp.Width * 0.5f;
 				const float cy = vp.TopLeftY + vp.Height * 0.5f;
 
@@ -1099,12 +1105,14 @@ float4 main(float4 pos : SV_POSITION) : SV_Target {
 					a_ctx->Unmap(s_cbCross, 0);
 				}
 
-				// 保存状态
+				// 保存全部要改的状态
 				ID3D11PixelShader* oldPS = nullptr;
 				a_ctx->PSGetShader(&oldPS, nullptr, nullptr);
 				ID3D11DepthStencilState* oldDS = nullptr;
 				UINT oldRef = 0;
 				a_ctx->OMGetDepthStencilState(&oldDS, &oldRef);
+				ID3D11Buffer* oldCB0 = nullptr;
+				a_ctx->PSGetConstantBuffers(0, 1, &oldCB0);
 
 				a_ctx->PSSetShader(s_psCross, nullptr, 0);
 				a_ctx->PSSetConstantBuffers(0, 1, &s_cbCross);
@@ -1113,9 +1121,11 @@ float4 main(float4 pos : SV_POSITION) : SV_Target {
 				// 只画 B 组
 				s_origDrawIndexed(a_ctx, 192, a_start, a_base);
 
-				// 恢复
+				// 恢复（PS + CB + DS 全部还原）
 				if (oldPS) { a_ctx->PSSetShader(oldPS, nullptr, 0); oldPS->Release(); }
 				else a_ctx->PSSetShader(nullptr, nullptr, 0);
+				a_ctx->PSSetConstantBuffers(0, 1, &oldCB0);
+				if (oldCB0) oldCB0->Release();
 				if (oldDS) { a_ctx->OMSetDepthStencilState(oldDS, oldRef); oldDS->Release(); }
 				return;   // 不画原始 384
 			}
