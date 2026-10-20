@@ -68,7 +68,8 @@ namespace RC
 	// ---- r169 两阶段：目镜 mask ----
 	extern bool  g_maskEnabled;   // 在 Lense 颜色 pass 里写 R8 mask
 	extern bool  g_maskUse;       // overlay 采样 mask 裁剪准星（M3）
-	extern bool  g_maskDebug;     // M1：把 mask 直接铺满屏幕显示
+	extern bool  g_maskDebug;     // M1：双色调试（mask 红 + 准星绿）
+	extern bool  g_redCross;      // 红色十字（overlay 层，受 mask 裁切）
 	extern ID3D11ShaderResourceView* g_maskSRV;   // overlay 读取用（main.cpp 创建）
 
 	// ---- overlay（overlay.cpp 实现）----
