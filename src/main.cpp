@@ -2124,6 +2124,12 @@ float4 main(float4 pos : SV_POSITION) : SV_Target {
 	}
 
 	// ======================= ScopeNormal 子树递归枚举 =======================
+	// r189: 位置采集上下文（相机 / 瞄具原点 / 三根局部轴），供 DumpSubtreeRec 使用
+	static RE::NiPoint3 s_subCamPos{};
+	static bool         s_subHasCam = false;
+	static RE::NiPoint3 s_subOrigin{};
+	static RE::NiPoint3 s_subAxis[3]{};
+
 	// 递归列出整个 ScopeNormal 下的所有节点/几何，确认 [NORMAL] 是否漏了 shape
 	static void DumpSubtreeRec(RE::NiAVObject* a_obj, int a_depth, int& a_shapes)
 	{
@@ -2133,14 +2139,34 @@ float4 main(float4 pos : SV_POSITION) : SV_Target {
 		if (tri) {
 			type = "TriShape";
 			a_shapes++;
-			// r185: 加位置与包围球，用来判断哪一片玻璃离玩家（相机）更近
+			// r189: 位置数据语义说明
+			//   nodeW  = a_obj->world.translate     —— 节点的世界变换平移（子节点常与父相同）
+			//   boundC = a_obj->worldBound.center   —— 几何包围球中心（世界空间）
+			//   dist   = 相机到 boundC 的欧氏距离
+			//   projX/Y/Z = (boundC - scopeOrigin) 在瞄具三根局部轴上的有符号投影
 			const auto& w = a_obj->world;
 			const auto& wb = a_obj->worldBound;
-			Log("[SUB] %*s%s tri=%u vert=%u cull=%d | world=(%.1f,%.1f,%.1f) | boundC=(%.1f,%.1f,%.1f) r=%.2f",
+
+			float dist = -1.0f;
+			if (s_subHasCam) {
+				const float dx = wb.center.x - s_subCamPos.x;
+				const float dy = wb.center.y - s_subCamPos.y;
+				const float dz = wb.center.z - s_subCamPos.z;
+				dist = std::sqrt(dx * dx + dy * dy + dz * dz);
+			}
+			const float rx = wb.center.x - s_subOrigin.x;
+			const float ry = wb.center.y - s_subOrigin.y;
+			const float rz = wb.center.z - s_subOrigin.z;
+			const float px = s_subAxis[0].x * rx + s_subAxis[0].y * ry + s_subAxis[0].z * rz;
+			const float py = s_subAxis[1].x * rx + s_subAxis[1].y * ry + s_subAxis[1].z * rz;
+			const float pz = s_subAxis[2].x * rx + s_subAxis[2].y * ry + s_subAxis[2].z * rz;
+
+			Log("[SUB] %*s%s tri=%u vert=%u cull=%d | nodeW=(%.1f,%.1f,%.1f) | boundC=(%.1f,%.1f,%.1f) r=%.2f | dist=%.2f | projX=%.2f projY=%.2f projZ=%.2f",
 				a_depth * 2, "", a_obj->name.c_str(),
 				tri->numTriangles, (unsigned)tri->numVertices, a_obj->GetAppCulled() ? 1 : 0,
 				w.translate.x, w.translate.y, w.translate.z,
-				wb.center.x, wb.center.y, wb.center.z, wb.fRadius);
+				wb.center.x, wb.center.y, wb.center.z, wb.fRadius,
+				dist, px, py, pz);
 		} else if (a_obj->IsNode()) {
 			type = "Node";
 			auto* node = a_obj->IsNode();
@@ -2319,8 +2345,33 @@ float4 main(float4 pos : SV_POSITION) : SV_Target {
 						if (sn2 != s_lastScopeNormal || wname != s_lastWeaponName) {
 							s_lastScopeNormal = sn2;
 							s_lastWeaponName = wname;
+
+							// r189: 采集相机位置与瞄具原点/三根局部轴
+							s_subHasCam = false;
+							if (auto* cam = RE::PlayerCamera::GetSingleton()) {
+								if (cam->cameraRoot) {
+									s_subCamPos = cam->cameraRoot->world.translate;
+									s_subHasCam = true;
+								}
+							}
+							s_subOrigin = sn2->world.translate;
+							{
+								const auto& r = sn2->world.rotate;
+								s_subAxis[0] = { r.entry[0].pt[0], r.entry[0].pt[1], r.entry[0].pt[2] };
+								s_subAxis[1] = { r.entry[1].pt[0], r.entry[1].pt[1], r.entry[1].pt[2] };
+								s_subAxis[2] = { r.entry[2].pt[0], r.entry[2].pt[1], r.entry[2].pt[2] };
+							}
+
 							int shapes = 0;
 							Log("[SUB] === ScopeNormal subtree (weapon=%s) ===", wname.c_str());
+							Log("[SUB] camera=%s(%.1f,%.1f,%.1f) | scopeOrigin=(%.1f,%.1f,%.1f)",
+								s_subHasCam ? "" : "NONE",
+								s_subCamPos.x, s_subCamPos.y, s_subCamPos.z,
+								s_subOrigin.x, s_subOrigin.y, s_subOrigin.z);
+							Log("[SUB] axis0=(%.3f,%.3f,%.3f) axis1=(%.3f,%.3f,%.3f) axis2=(%.3f,%.3f,%.3f)",
+								s_subAxis[0].x, s_subAxis[0].y, s_subAxis[0].z,
+								s_subAxis[1].x, s_subAxis[1].y, s_subAxis[1].z,
+								s_subAxis[2].x, s_subAxis[2].y, s_subAxis[2].z);
 							DumpSubtreeRec(sn2, 0, shapes);
 							Log("[SUB] === total drawable shapes = %d ===", shapes);
 						}
@@ -2679,7 +2730,7 @@ float4 main(float4 pos : SV_POSITION) : SV_Target {
 	static void InstallHooks()
 	{
 		const auto mh = MH_Initialize();
-		Log("[BUILD] BudgetThroughScope r188 (strict-fallback) %s %s", __DATE__, __TIME__);
+		Log("[BUILD] BudgetThroughScope r189 (sub-camera) %s %s", __DATE__, __TIME__);
 		Log("[INIT] MH_Initialize = %d", (int)mh);
 		CreateDirectoryW(L"E:\\Custom Fallout4\\shots", nullptr);
 
