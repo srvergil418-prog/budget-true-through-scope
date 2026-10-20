@@ -2048,6 +2048,9 @@ float4 main(float4 pos : SV_POSITION) : SV_Target {
 	static void __fastcall hkPCUpdateMainThread(RE::PlayerCharacter* a_pc)
 	{
 		if (a_pc) {
+			// r177: 记录 ADS 时被我们 cull 的节点（按名字 + 原始状态）
+			struct CullRec { std::string name; bool orig; };
+			static std::vector<CullRec> s_cullRec;
 			static bool s_lastADS = false;
 			static int s_frame = 0;
 			static int s_hideLog = 0;
@@ -2100,7 +2103,20 @@ float4 main(float4 pos : SV_POSITION) : SV_Target {
 						}
 					}
 				};
-				if (g_forceLense)        UncullOnly("Lense");
+				if (g_forceLense) {
+					UncullOnly("Lense");
+					// r177: ADS 时把镜筒/镜架 cull 掉（视野干净），同时记录原始状态，
+					// 退出 ADS 时恢复 —— 否则腰射时瞄具会消失。
+					s_cullRec.clear();
+					const char* others[] = { "polySurface22", "Mount1", "Mount2" };
+					for (auto* o : others) {
+						if (auto* on = FindNode(a_pc, o)) {
+							s_cullRec.push_back({ std::string(o), on->GetAppCulled() });
+							if (!on->GetAppCulled()) on->SetAppCulled(true);
+						}
+					}
+					Log("[CULL] ADS enter: culled %zu others (recorded orig)", s_cullRec.size());
+				}
 				else if (g_forcePoly)    ShowOnly("polySurface22");
 				else if (g_forceMount1)  ShowOnly("Mount1");
 				else if (g_forceMount2)  ShowOnly("Mount2");
@@ -2236,6 +2252,14 @@ float4 main(float4 pos : SV_POSITION) : SV_Target {
 				}
 			} else if (s_lastADS) {
 				g_maskR = 0.0f;
+				// r177: 恢复 ADS 时被我们 cull 的节点（按名字重新查找，避免悬空指针）
+				for (auto& r : s_cullRec) {
+					if (auto* n = FindNode(a_pc, r.name.c_str())) {
+						if (n->GetAppCulled() != r.orig) n->SetAppCulled(r.orig);
+					}
+				}
+				if (!s_cullRec.empty()) Log("[CULL] ADS exit: restored %zu nodes", s_cullRec.size());
+				s_cullRec.clear();
 				// 收镜：透镜隐藏，避免不开镜也能看见准星
 				if (s_lensNode) s_lensNode->SetAppCulled(true);
 				// 退出开镜：把相机 FOV 还给游戏（掏枪/收镜后就是镜子自己的默认值）
