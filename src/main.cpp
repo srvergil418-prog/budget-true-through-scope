@@ -1336,7 +1336,8 @@ float4 main(float4 pos : SV_POSITION) : SV_Target {
 			// 提前 Release 会让之后保存的指针变成悬空（r181 的 bug）。
 			// 释放统一放在本分支末尾（含 early return 路径）。
 
-			if (colorM && strideM == 20) {
+			// r198: 不再限制 stride —— K98k 是 20，ATACR 是 24（实测）
+			if (colorM && strideM > 0) {
 				// 1) 原始绘制
 				s_origDrawIndexed(a_ctx, a_count, a_start, a_base);
 
@@ -1456,7 +1457,7 @@ float4 main(float4 pos : SV_POSITION) : SV_Target {
 			}
 			if (vbDW) vbDW->Release();
 
-			if (isDepthDW && strideDW == 20 && isTargetGeo && s_dsNoDepthWrite) {
+			if (isDepthDW && strideDW > 0 && isTargetGeo && s_dsNoDepthWrite) {   // r198: 放开 stride
 				ID3D11DepthStencilState* oldDS = nullptr;
 				UINT oldRef = 0;
 				a_ctx->OMGetDepthStencilState(&oldDS, &oldRef);
@@ -2913,7 +2914,7 @@ float4 main(float4 pos : SV_POSITION) : SV_Target {
 	static void InstallHooks()
 	{
 		const auto mh = MH_Initialize();
-		Log("[BUILD] BudgetThroughScope r197 (c282-probe) %s %s", __DATE__, __TIME__);
+		Log("[BUILD] BudgetThroughScope r198 (no-stride-limit) %s %s", __DATE__, __TIME__);
 		Log("[INIT] MH_Initialize = %d", (int)mh);
 		CreateDirectoryW(L"E:\\Custom Fallout4\\shots", nullptr);
 
