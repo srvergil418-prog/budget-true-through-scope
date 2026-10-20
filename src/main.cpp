@@ -2487,6 +2487,39 @@ float4 main(float4 pos : SV_POSITION) : SV_Target {
 					}
 				}
 
+				// r203: 探测原准星的材质贴图路径（拿到后用于绘制 overlay 准星）
+				// 链路：BSTriShape.properties[0] -> BSShaderProperty.material
+				//       -> BSLightingShaderMaterialBase.textureSet -> GetTextureFilename(kBase)
+				{
+					static bool s_retexLogged = false;
+					if (!s_retexLogged) {
+						if (auto* retR = FindNode(a_pc, "Reticle")) {
+							if (auto* triR = retR->IsTriShape()) {
+								s_retexLogged = true;
+								auto* prop0 = triR->properties[0].get();
+								Log("[RETEX] shape=%s tri=%u vert=%u prop0=%p",
+									retR->name.c_str(), triR->numTriangles, (unsigned)triR->numVertices, (void*)prop0);
+								if (prop0) {
+									auto* shader = static_cast<RE::BSShaderProperty*>(prop0);
+									auto* mat = shader->material;
+									Log("[RETEX] material=%p", (void*)mat);
+									if (mat) {
+										auto* lm = static_cast<RE::BSLightingShaderMaterialBase*>(mat);
+										auto* tset = lm->textureSet.get();
+										Log("[RETEX] textureSet=%p", (void*)tset);
+										if (tset) {
+											const char* p0 = tset->GetTextureFilename(RE::BSShaderProperty::TextureTypeEnum::kBase);
+											const char* p2 = tset->GetTextureFilename(RE::BSShaderProperty::TextureTypeEnum::kGlow);
+											Log("[RETEX] diffuse=%s", p0 ? p0 : "(null)");
+											Log("[RETEX] glow=%s", p2 ? p2 : "(null)");
+										}
+									}
+								}
+							}
+						}
+					}
+				}
+
 				// 处理 STS 原准星（贴在瞄具上会跟着晃）
 				// r202: 加开关 g_showScopeReticle —— 默认隐藏（false），用户可手动显示
 				{
@@ -2952,7 +2985,7 @@ float4 main(float4 pos : SV_POSITION) : SV_Target {
 	static void InstallHooks()
 	{
 		const auto mh = MH_Initialize();
-		Log("[BUILD] BudgetThroughScope r202 (tabs+reticle-switch) %s %s", __DATE__, __TIME__);
+		Log("[BUILD] BudgetThroughScope r203 (retex-probe) %s %s", __DATE__, __TIME__);
 		Log("[INIT] MH_Initialize = %d", (int)mh);
 		CreateDirectoryW(L"E:\\Custom Fallout4\\shots", nullptr);
 
