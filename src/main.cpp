@@ -2292,6 +2292,7 @@ float4 main(float4 pos : SV_POSITION) : SV_Target {
 	static void SyncProfileName()
 	{
 		strcpy_s(g_scopeProfileName, sizeof(g_scopeProfileName), s_scopeProfile.name);
+		g_scopeValid = (strcmp(s_scopeProfile.name, "unknown") != 0);
 	}
 
 	// ======================= ScopeNormal 子树递归枚举 =======================
@@ -2952,7 +2953,7 @@ float4 main(float4 pos : SV_POSITION) : SV_Target {
 	static void InstallHooks()
 	{
 		const auto mh = MH_Initialize();
-		Log("[BUILD] BudgetThroughScope r204 (tabs+switch) %s %s", __DATE__, __TIME__);
+		Log("[BUILD] BudgetThroughScope r205 (scope-gate) %s %s", __DATE__, __TIME__);
 		Log("[INIT] MH_Initialize = %d", (int)mh);
 		CreateDirectoryW(L"E:\\Custom Fallout4\\shots", nullptr);
 
