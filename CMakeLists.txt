@@ -33,12 +33,32 @@ endif ()
 find_package(minhook CONFIG REQUIRED)
 
 if (NOT TARGET CommonLibF4)
-	if (EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/CommonLibF4")
-		add_subdirectory("${CMAKE_CURRENT_SOURCE_DIR}/CommonLibF4" CommonLibF4)
-	elseif (EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/../CommonLibF4")
-		add_subdirectory("${CMAKE_CURRENT_SOURCE_DIR}/../CommonLibF4" CommonLibF4)
-	else ()
+	set(CLF4_DIR "${CMAKE_CURRENT_SOURCE_DIR}/CommonLibF4")
+	if (NOT EXISTS "${CLF4_DIR}")
+		set(CLF4_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../CommonLibF4")
+	endif ()
+
+	if (NOT EXISTS "${CLF4_DIR}")
 		message(FATAL_ERROR "CommonLibF4 not found (looked in ./CommonLibF4 and ../CommonLibF4)")
+	elseif (EXISTS "${CLF4_DIR}/CMakeLists.txt")
+		# powerof3/CommonLibF4 等带 CMake 的 fork
+		add_subdirectory("${CLF4_DIR}" CommonLibF4)
+	elseif (EXISTS "${CLF4_DIR}/xmake.lua")
+		# r210: libxse/commonlibf4 只有 xmake.lua，没有 CMakeLists.txt。
+		# 直接把它的 src/**.cpp 编成静态库，include 目录公开出去。
+		file(GLOB_RECURSE CLF4_SOURCES CONFIGURE_DEPENDS "${CLF4_DIR}/src/*.cpp")
+		list(LENGTH CLF4_SOURCES CLF4_SOURCE_COUNT)
+		message(STATUS "CommonLibF4: xmake-only repo detected, building ${CLF4_SOURCE_COUNT} sources via CMake shim")
+		add_library(CommonLibF4 STATIC ${CLF4_SOURCES})
+		target_include_directories(CommonLibF4 PUBLIC "${CLF4_DIR}/include")
+		# libxse 要求 C++23（xmake.lua: set_languages("c++23")）
+		target_compile_features(CommonLibF4 PUBLIC cxx_std_23)
+		# 它的 PCH
+		if (EXISTS "${CLF4_DIR}/include/F4SE/Impl/PCH.h")
+			target_precompile_headers(CommonLibF4 PRIVATE "${CLF4_DIR}/include/F4SE/Impl/PCH.h")
+		endif ()
+	else ()
+		message(FATAL_ERROR "CommonLibF4 at ${CLF4_DIR} has neither CMakeLists.txt nor xmake.lua")
 	endif ()
 endif ()
 
