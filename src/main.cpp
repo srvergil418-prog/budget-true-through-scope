@@ -401,6 +401,11 @@ namespace RC
 	static bool s_lenseIdentified = false;
 	static ID3D11Buffer* s_lenseVB = nullptr;      // 持有独立 COM 引用
 	static UINT s_lenseVoff = 0;
+	static UINT s_lenseStride = 0;
+	static const void* s_lenseIbAddr = nullptr;
+	static UINT s_lenseIOff = 0;
+	static int  s_lenseIFmt = -1;
+	static int  s_lenseMaxIdx = -1;
 	static ID3D11Buffer* s_ibStaging = nullptr;    // 读回索引缓冲区用
 	static UINT s_ibStagingSize = 0;
 	static ID3D11RenderTargetView* s_maskRTV = nullptr;
@@ -1249,7 +1254,10 @@ float4 main(float4 pos : SV_POSITION) : SV_Target {
 			ID3D11Buffer* vbM = nullptr;
 			UINT strideM = 0, voffM = 0;
 			a_ctx->IAGetVertexBuffers(0, 1, &vbM, &strideM, &voffM);
-			if (vbM) vbM->Release();
+			// r182: 注意 —— 这里【不】立即 Release。
+			// IAGetVertexBuffers 返回的指针带一个引用，识别时要用它做身份比较，
+			// 提前 Release 会让之后保存的指针变成悬空（r181 的 bug）。
+			// 释放统一放在本分支末尾（含 early return 路径）。
 
 			if (colorM && strideM == 20) {
 				// 1) 原始绘制
@@ -1300,12 +1308,21 @@ float4 main(float4 pos : SV_POSITION) : SV_Target {
 							const int mx = ReadIndexBufferMax(a_ctx, devI, ibI, ioffI, fmtI, a_count);
 							if (mx >= 0 && mx <= 81) {
 								s_lenseIdentified = true;
+								// r182: 此时 vbM 仍然有效（引用还没释放），先建立独立引用
+								if (s_lenseVB) { s_lenseVB->Release(); s_lenseVB = nullptr; }
 								s_lenseVB = vbM;
-								if (s_lenseVB) s_lenseVB->AddRef();   // r181: 独立持有引用
+								if (s_lenseVB) s_lenseVB->AddRef();
 								s_lenseVoff = voffM;
-								Log("[LENSE-ID] MATCH voff=%u maxIdx=%d -> strict target set", voffM, mx);
+								s_lenseStride = strideM;
+								s_lenseIbAddr = (const void*)ibI;
+								s_lenseIOff = ioffI;
+								s_lenseIFmt = (int)fmtI;
+								s_lenseMaxIdx = mx;
+								Log("[LENSE-ID] color MATCH | VB=%p voff=%u stride=%u | IB=%p fmt=%d ioff=%u | start=%u count=%u | maxIdx=%d",
+									(void*)vbM, voffM, strideM, (void*)ibI, (int)fmtI, ioffI,
+									a_start, a_count, mx);
 							} else {
-								Log("[LENSE-ID] reject voff=%u maxIdx=%d", voffM, mx);
+								Log("[LENSE-ID] color reject | VB=%p voff=%u maxIdx=%d", (void*)vbM, voffM, mx);
 							}
 						}
 						if (devI) devI->Release();
@@ -1320,8 +1337,10 @@ float4 main(float4 pos : SV_POSITION) : SV_Target {
 					s_maskLog++;
 					Log("[MASK] B-group drawn into mask (voff=%u) total=%d", voffM, (int)s_maskWrites);
 				}
+				if (vbM) vbM->Release();   // r182: 分支末尾统一释放
 				return;
 			}
+			if (vbM) vbM->Release();       // r182: 未命中 color 条件时也要释放
 		}
 
 		// ======================= r166: 深度预 pass 不写深度（验证深度因果） =======================
@@ -1337,11 +1356,24 @@ float4 main(float4 pos : SV_POSITION) : SV_Target {
 			UINT strideDW = 0, voffDW = 0;
 			a_ctx->IAGetVertexBuffers(0, 1, &vbDW, &strideDW, &voffDW);
 
-			// r180: 身份识别尚不可靠（mask 分支会被多条 384 color draw 覆盖，见 GPT P0-3），
-			// 默认恢复宽松模式：所有 384 深度预 pass 都跳过。
-			// g_strictDW 开启时才按记录的 (VB,voff) 严格匹配（仅诊断用）。
+			// r182: 严格模式改用「索引内容识别」得到的 s_lenseVB（持有独立 COM 引用）
 			const bool isTargetGeo = !g_strictDW
-				|| (s_maskVB != nullptr && vbDW == s_maskVB && voffDW == s_maskVoff);
+				|| (s_lenseIdentified && s_lenseVB != nullptr
+				    && vbDW == s_lenseVB && voffDW == s_lenseVoff);
+
+			// r182: 完整身份对照日志（GPT 要求）——必须在 Release 之前打印
+			{
+				static int s_dwCheckLog = 0;
+				if (s_dwCheckLog < 24 && isDepthDW && strideDW == 20) {
+					s_dwCheckLog++;
+					Log("[DW-CHECK] curVB=%p voff=%u stride=%u | lenseVB=%p lenseVoff=%u id=%d | maskVB=%p maskVoff=%u | strict=%d -> %s",
+						(void*)vbDW, voffDW, strideDW,
+						(void*)s_lenseVB, s_lenseVoff, s_lenseIdentified ? 1 : 0,
+						(void*)s_maskVB, s_maskVoff,
+						g_strictDW ? 1 : 0,
+						(isTargetGeo ? "SKIP" : "ALLOW"));
+				}
+			}
 			if (vbDW) vbDW->Release();
 
 			if (isDepthDW && strideDW == 20 && isTargetGeo && s_dsNoDepthWrite) {
@@ -2631,7 +2663,7 @@ float4 main(float4 pos : SV_POSITION) : SV_Target {
 	static void InstallHooks()
 	{
 		const auto mh = MH_Initialize();
-		Log("[BUILD] BudgetThroughScope r179 (cull-snapshot-fix) %s %s", __DATE__, __TIME__);
+		Log("[BUILD] BudgetThroughScope r182 (strict-id-comfix) %s %s", __DATE__, __TIME__);
 		Log("[INIT] MH_Initialize = %d", (int)mh);
 		CreateDirectoryW(L"E:\\Custom Fallout4\\shots", nullptr);
 
