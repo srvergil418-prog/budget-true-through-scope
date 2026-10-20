@@ -3,9 +3,6 @@
 
 #include <MinHook.h>
 
-// r217: 只补一个缺失的类型声明；BSShaderProperty / BSTextureSet 由 PCH 提供。
-#include "RE_B_BSLightingShaderMaterialBase.h"
-
 namespace RC
 {
 	// ======================= 日志 =======================
@@ -2553,16 +2550,21 @@ float4 main(float4 pos : SV_POSITION) : SV_Target {
 								auto* prop0 = triR->properties[0].get();
 								Log("[RETEX] shape=%s tri=%u vert=%u prop0=%p",
 									retR->name.c_str(), triR->numTriangles, (unsigned)triR->numVertices, (void*)prop0);
+								// r218: 纯偏移读取（绕开 powerof3 缺失的材质类型）
+								// material @0x58（BSShaderProperty::material）
+								// textureSet @0x70（BSLightingShaderMaterialBase::textureSet）
+								// vtable[0x29] = BSTextureSet::GetTextureFilename
 								if (prop0) {
-									auto* shader = static_cast<RE::BSShaderProperty*>(prop0);
-									auto* mat = shader->material;
-									Log("[RETEX] material=%p", (void*)mat);
+									auto* mat = *(void**)((uint8_t*)prop0 + 0x58);
+									Log("[RETEX] material=%p", mat);
 									if (mat) {
-										auto* lm = static_cast<RE::BSLightingShaderMaterialBase*>(mat);
-										auto* tset = lm->textureSet.get();
-										Log("[RETEX] textureSet=%p", (void*)tset);
+										auto* tset = *(void**)((uint8_t*)mat + 0x70);
+										Log("[RETEX] textureSet=%p", tset);
 										if (tset) {
-											const char* pK = tset->GetTextureFilename(RE::BSShaderProperty::TextureTypeEnum::kBase);
+											auto** vt = *(void***)tset;
+											using FnGetTex = const char* (*)(void*, int);
+											auto* fn = (FnGetTex)vt[0x29 / 8];
+											const char* pK = fn(tset, 0);
 											Log("[RETEX] kBase=%s", pK ? pK : "(null)");
 										}
 									}
@@ -3037,7 +3039,7 @@ float4 main(float4 pos : SV_POSITION) : SV_Target {
 	static void InstallHooks()
 	{
 		const auto mh = MH_Initialize();
-		Log("[BUILD] BudgetThroughScope r216 (retex-powered) %s %s", __DATE__, __TIME__);
+		Log("[BUILD] BudgetThroughScope r218 (offset-probe) %s %s", __DATE__, __TIME__);
 		Log("[INIT] MH_Initialize = %d", (int)mh);
 		CreateDirectoryW(L"E:\\Custom Fallout4\\shots", nullptr);
 
