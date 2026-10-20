@@ -389,6 +389,7 @@ namespace RC
 	// r169: 目镜 mask 资源
 	static ID3D11Texture2D* s_maskTex = nullptr;
 	static ID3D11Texture2D* s_maskStaging = nullptr;   // r172: 读回用
+	static std::atomic<int> s_maskWrites{ 0 };   // r173: mask 写入总次数
 	static ID3D11RenderTargetView* s_maskRTV = nullptr;
 	static ID3D11PixelShader* s_psMask = nullptr;
 	ID3D11ShaderResourceView* g_maskSRV = nullptr;
@@ -1224,7 +1225,11 @@ float4 main(float4 pos : SV_POSITION) : SV_Target {
 				if (oldDSV) oldDSV->Release();
 
 				static int s_maskLog = 0;
-				if (s_maskLog < 4) { s_maskLog++; Log("[MASK] B-group drawn into mask (voff=%u)", voffM); }
+				++s_maskWrites;
+				if (s_maskLog < 40) {
+					s_maskLog++;
+					Log("[MASK] B-group drawn into mask (voff=%u) total=%d", voffM, (int)s_maskWrites);
+				}
 				return;
 			}
 		}
@@ -2443,7 +2448,7 @@ float4 main(float4 pos : SV_POSITION) : SV_Target {
 						const uint8_t* row = (const uint8_t*)mr.pData + (size_t)540 * mr.RowPitch;
 						const uint8_t vCenter = row[960];          // mask 中心
 						const uint8_t vCorner = *(const uint8_t*)mr.pData;  // 左上角
-						Log("[MASK-RB] center=%u corner=%u (0=空 255=满)", vCenter, vCorner);
+						Log("[MASK-RB] center=%u corner=%u | maskWrites=%d", vCenter, vCorner, s_maskWrites.load());
 						cR->Unmap(s_maskStaging, 0);
 					}
 				}
