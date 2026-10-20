@@ -1235,6 +1235,16 @@ float4 main(float4 pos : SV_POSITION) : SV_Target {
 				else if (a_count > 1000) ++s_cStatLarge;
 				if (a_start != 0) ++s_cStatStartNZ;
 
+				// --- r197: 精确追踪 282±65 的颜色 draw（不受 60 条额度限制）---
+				if (a_count >= 220 && a_count <= 350) {
+					static int s_c282Log = 0;
+					if (s_c282Log < 80) {
+						++s_c282Log;
+						Log("[C282?] count=%u start=%u base=%d stride=%u voff=%u | profile=%s expect=%u",
+							a_count, a_start, a_base, stS, ofS, s_scopeProfile.name, s_scopeProfile.targetIndexCount);
+					}
+				}
+
 				// --- 层 B：候选详单 ---
 				const bool isCand = (a_count >= 100 && a_count <= 1000) || (a_start != 0);
 				if (isCand && s_cStatDetail < 60) {
