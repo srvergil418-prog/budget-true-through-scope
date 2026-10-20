@@ -253,8 +253,12 @@ namespace RC
 		// 目标位置：挂到 ScopeFade 的包围球中心 —— 那是圆环的圆心，也就是
 		// "洞"的中心，这个位置才是镜片该在的地方。
 		RE::NiPoint3 target{ g_lensOffX, g_lensOffY, g_lensOffZ };
-		if (auto* fade = FindNode(pc, "ScopeFade")) {
-			const RE::NiPoint3 c = fade->worldBound.center;
+		auto* fadeNode = FindNode(pc, "ScopeFade");
+		// r190: 没有 ScopeFade 的武器（非 STS 瞄具）不创建任何东西，
+		// 否则会在这个武器上挂出一个悬空的白圆盘。
+		if (!fadeNode) return;
+		{
+			const RE::NiPoint3 c = fadeNode->worldBound.center;
 			const auto& pW = weaponNode->world;
 			const float pScale = (std::fabs(pW.scale) > 1e-6f) ? pW.scale : 1.0f;
 			const RE::NiPoint3 d = c - pW.translate;
@@ -2298,9 +2302,12 @@ float4 main(float4 pos : SV_POSITION) : SV_Target {
 				// 强行 cull 会污染 STS 自己的剔除逻辑（导致腰射没有瞄具）。
 				// 取消勾选时什么都不做，让 STS 按自己的 ADS 逻辑管理可见性。
 
-				// 透镜只在开镜时可见
-				if (s_lensNode && s_lensNode->GetAppCulled()) {
-					s_lensNode->SetAppCulled(false);
+				// 透镜只在开镜时可见；旧方案关闭时必须强制隐藏，否则 RCLens 会挡在目镜位置
+				if (s_lensNode) {
+					const bool wantVisible = g_lensEnabled;
+					if (s_lensNode->GetAppCulled() == wantVisible) {
+						s_lensNode->SetAppCulled(!wantVisible);
+					}
 				}
 
 				// 隐藏原 STS 准星（它贴在瞄具上会跟着晃）
@@ -2730,7 +2737,7 @@ float4 main(float4 pos : SV_POSITION) : SV_Target {
 	static void InstallHooks()
 	{
 		const auto mh = MH_Initialize();
-		Log("[BUILD] BudgetThroughScope r189 (sub-camera) %s %s", __DATE__, __TIME__);
+		Log("[BUILD] BudgetThroughScope r190 (no-rc-lens) %s %s", __DATE__, __TIME__);
 		Log("[INIT] MH_Initialize = %d", (int)mh);
 		CreateDirectoryW(L"E:\\Custom Fallout4\\shots", nullptr);
 
