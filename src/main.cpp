@@ -394,6 +394,15 @@ namespace RC
 	static ID3D11Buffer* s_maskVB = nullptr;
 	static UINT s_maskVoff = 0;
 	static std::atomic<int> s_dwSkipped{ 0 };   // r178: 本帧跳过深度写入的次数
+
+	// r181: 严格 Lense 识别 —— 用索引缓冲区内容判定（读一次，缓存结果）
+	// 依据（S 级，来自 NIF 字节级比对）：Lense:0 的 384 个索引只引用 0..81 顶点；
+	// 另一条同名 384 Draw 的索引引用范围更大（实测最大 113）。
+	static bool s_lenseIdentified = false;
+	static ID3D11Buffer* s_lenseVB = nullptr;      // 持有独立 COM 引用
+	static UINT s_lenseVoff = 0;
+	static ID3D11Buffer* s_ibStaging = nullptr;    // 读回索引缓冲区用
+	static UINT s_ibStagingSize = 0;
 	static ID3D11RenderTargetView* s_maskRTV = nullptr;
 	static ID3D11PixelShader* s_psMask = nullptr;
 	ID3D11ShaderResourceView* g_maskSRV = nullptr;
@@ -506,6 +515,49 @@ float4 main() : SV_Target { return float4(1.0, 1.0, 1.0, 1.0); }
 
 		Log("[DIAG] cross ps=%d cb=%d dsNoStencil=%d dsNoDepthWrite=%d",
 			s_psCross ? 1 : 0, s_cbCross ? 1 : 0, s_dsNoStencil ? 1 : 0, s_dsNoDepthWrite ? 1 : 0);
+	}
+
+	// ======================= r181: 严格 Lense 识别 =======================
+	// 读索引缓冲区的 [ioff, ioff + count*2) 范围，返回其中最大的顶点索引。
+	// 用途：Lense:0 的 384 个索引只引用 0..81（82 顶点）；另一条 384 Draw 引用到 113。
+	// 只在识别阶段调用一次，不进每帧热路径。
+	static int ReadIndexBufferMax(ID3D11DeviceContext* a_ctx, ID3D11Device* a_dev,
+		ID3D11Buffer* a_ib, UINT a_ioff, DXGI_FORMAT a_fmt, UINT a_count)
+	{
+		if (!a_ctx || !a_dev || !a_ib) return -1;
+		if (a_fmt != DXGI_FORMAT_R16_UINT) return -1;
+
+		const UINT need = a_count * 2u;
+		D3D11_BUFFER_DESC bd{};
+		a_ib->GetDesc(&bd);
+		if (bd.ByteWidth < a_ioff + need) return -1;
+
+		if (!s_ibStaging || s_ibStagingSize < need) {
+			if (s_ibStaging) { s_ibStaging->Release(); s_ibStaging = nullptr; }
+			D3D11_BUFFER_DESC sd{};
+			sd.ByteWidth = need;
+			sd.Usage = D3D11_USAGE_STAGING;
+			sd.CPUAccessFlags = D3D11_CPU_ACCESS_READ;
+			if (FAILED(a_dev->CreateBuffer(&sd, nullptr, &s_ibStaging))) { s_ibStaging = nullptr; return -1; }
+			s_ibStagingSize = need;
+		}
+
+		D3D11_BOX box{};
+		box.left = a_ioff;
+		box.right = a_ioff + need;
+		box.top = 0; box.bottom = 1;
+		box.front = 0; box.back = 1;
+		a_ctx->CopySubresourceRegion(s_ibStaging, 0, 0, 0, 0, a_ib, 0, &box);
+
+		D3D11_MAPPED_SUBRESOURCE ms{};
+		if (FAILED(a_ctx->Map(s_ibStaging, 0, D3D11_MAP_READ, 0, &ms))) return -1;
+		const uint16_t* p = (const uint16_t*)ms.pData;
+		int mx = -1;
+		for (UINT i = 0; i < a_count; ++i) {
+			if ((int)p[i] > mx) mx = (int)p[i];
+		}
+		a_ctx->Unmap(s_ibStaging, 0);
+		return mx;
 	}
 
 	// ======================= 受控抑制实验（身份验证） =======================
@@ -1230,7 +1282,38 @@ float4 main(float4 pos : SV_POSITION) : SV_Target {
 
 				static int s_maskLog = 0;
 				++s_maskWrites;
-				// r178: 记录这条几何的身份，供 SKIP DEPTH 限定范围
+
+				// r181: 严格识别 Lense —— 读这条 draw 的索引内容，判断最大顶点索引。
+				// Lense:0 只引用 0..81；另一条 384 Draw 引用到 113。
+				// 识别成功后不再读（避免进入热路径）。
+				if (!s_lenseIdentified) {
+					static int s_idTries = 0;
+					if (s_idTries < 60) {
+						++s_idTries;
+						ID3D11Buffer* ibI = nullptr;
+						DXGI_FORMAT fmtI = DXGI_FORMAT_UNKNOWN;
+						UINT ioffI = 0;
+						a_ctx->IAGetIndexBuffer(&ibI, &fmtI, &ioffI);
+						ID3D11Device* devI = nullptr;
+						a_ctx->GetDevice(&devI);
+						if (ibI && devI) {
+							const int mx = ReadIndexBufferMax(a_ctx, devI, ibI, ioffI, fmtI, a_count);
+							if (mx >= 0 && mx <= 81) {
+								s_lenseIdentified = true;
+								s_lenseVB = vbM;
+								if (s_lenseVB) s_lenseVB->AddRef();   // r181: 独立持有引用
+								s_lenseVoff = voffM;
+								Log("[LENSE-ID] MATCH voff=%u maxIdx=%d -> strict target set", voffM, mx);
+							} else {
+								Log("[LENSE-ID] reject voff=%u maxIdx=%d", voffM, mx);
+							}
+						}
+						if (devI) devI->Release();
+						if (ibI) ibI->Release();
+					}
+				}
+
+				// r178: 记录这条几何的身份（宽松模式下的参考值）
 				s_maskVB = vbM;
 				s_maskVoff = voffM;
 				if (s_maskLog < 40) {
