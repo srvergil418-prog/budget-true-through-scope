@@ -1361,10 +1361,11 @@ float4 main(float4 pos : SV_POSITION) : SV_Target {
 				|| (s_lenseIdentified && s_lenseVB != nullptr
 				    && vbDW == s_lenseVB && voffDW == s_lenseVoff);
 
-			// r182: 完整身份对照日志（GPT 要求）——必须在 Release 之前打印
+			// r183: 只在「严格模式 + 已完成识别」时记录，避免额度被识别前的记录耗尽
 			{
 				static int s_dwCheckLog = 0;
-				if (s_dwCheckLog < 24 && isDepthDW && strideDW == 20) {
+				if (g_strictDW && s_lenseIdentified && s_dwCheckLog < 40
+				    && isDepthDW && strideDW == 20) {
 					s_dwCheckLog++;
 					Log("[DW-CHECK] curVB=%p voff=%u stride=%u | lenseVB=%p lenseVoff=%u id=%d | maskVB=%p maskVoff=%u | strict=%d -> %s",
 						(void*)vbDW, voffDW, strideDW,
@@ -2663,7 +2664,7 @@ float4 main(float4 pos : SV_POSITION) : SV_Target {
 	static void InstallHooks()
 	{
 		const auto mh = MH_Initialize();
-		Log("[BUILD] BudgetThroughScope r182 (strict-id-comfix) %s %s", __DATE__, __TIME__);
+		Log("[BUILD] BudgetThroughScope r183 (strict-log) %s %s", __DATE__, __TIME__);
 		Log("[INIT] MH_Initialize = %d", (int)mh);
 		CreateDirectoryW(L"E:\\Custom Fallout4\\shots", nullptr);
 
