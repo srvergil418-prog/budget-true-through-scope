@@ -413,7 +413,8 @@ float4 main(float4 pos : SV_POSITION) : SV_Target {
 			// r169: pad0 = 是否启用目镜 mask 裁剪
 			cb.pad0 = (g_maskUse && g_maskSRV) ? 1.0f : 0.0f;
 			// r174: pad1 = 2 红色十字 / 1 双色调试（mask 红 + 准星绿）/ 0 正常
-			cb.pad1 = g_redCross ? 2.0f : (g_maskDebug ? 1.0f : 0.0f);
+			// r226: debug view 优先级最高 —— 之前被 redCross 覆盖，导致打开 debug 看不到任何变化。
+			cb.pad1 = g_maskDebug ? 1.0f : (g_redCross ? 2.0f : 0.0f);
 
 			D3D11_MAPPED_SUBRESOURCE ms{};
 			if (SUCCEEDED(ctx->Map(s_state.cb, 0, D3D11_MAP_WRITE_DISCARD, 0, &ms))) {
