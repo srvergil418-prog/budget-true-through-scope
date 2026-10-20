@@ -1254,9 +1254,11 @@ float4 main(float4 pos : SV_POSITION) : SV_Target {
 			UINT strideDW = 0, voffDW = 0;
 			a_ctx->IAGetVertexBuffers(0, 1, &vbDW, &strideDW, &voffDW);
 
-			// r178: 只对「mask 写入时记录的那条几何」跳过深度，
-			// 避免影响同为本 384 索引的未知几何（GPT P0）。
-			const bool isTargetGeo = (s_maskVB != nullptr && vbDW == s_maskVB && voffDW == s_maskVoff);
+			// r180: 身份识别尚不可靠（mask 分支会被多条 384 color draw 覆盖，见 GPT P0-3），
+			// 默认恢复宽松模式：所有 384 深度预 pass 都跳过。
+			// g_strictDW 开启时才按记录的 (VB,voff) 严格匹配（仅诊断用）。
+			const bool isTargetGeo = !g_strictDW
+				|| (s_maskVB != nullptr && vbDW == s_maskVB && voffDW == s_maskVoff);
 			if (vbDW) vbDW->Release();
 
 			if (isDepthDW && strideDW == 20 && isTargetGeo && s_dsNoDepthWrite) {
