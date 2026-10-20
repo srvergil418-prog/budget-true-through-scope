@@ -3,10 +3,10 @@
 
 #include <MinHook.h>
 
-// r213: 从 libxse/commonlibf4 复制的材质类型（powerof3 缺这一个头文件）。
-// 它继承 powerof3 里已有的 BSShaderMaterial，只补 textureSet 成员。
-// 若两版本 ABI 不一致，运行时指针会明显异常 —— 探针会打印出来。
-#include "RE_B_BSLightingShaderMaterialBase.h"
+// r214: 统一用 libxse/commonlibf4（powerof3 连 BSShaderMaterial.h 都没有导出）。
+#include <RE/B/BSLightingShaderMaterialBase.h>
+#include <RE/B/BSShaderProperty.h>
+#include <RE/B/BSTextureSet.h>
 
 namespace RC
 {
