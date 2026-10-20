@@ -399,6 +399,7 @@ namespace RC
 		UINT targetIndexCount = 0;
 		UINT maskStart = 0;
 		UINT maskCount = 0;
+		UINT expectedStride = 0;   // r199: 该瞄具的顶点步长（诊断/校验用，0=未知）
 	};
 	static ScopeProfile s_scopeProfile;
 	static ID3D11Texture2D* s_maskTex = nullptr;
@@ -2234,6 +2235,7 @@ float4 main(float4 pos : SV_POSITION) : SV_Target {
 			s_scopeProfile.targetIndexCount = l->numTriangles * 3;   // 128*3 = 384
 			s_scopeProfile.maskStart = 0;
 			s_scopeProfile.maskCount = 192;                          // 只画 B 组
+			s_scopeProfile.expectedStride = 20;
 			Log("[PROFILE] K98k: shape=%s tri=%u -> idxCount=%u mask=%u@%u",
 				l->name.c_str(), l->numTriangles, s_scopeProfile.targetIndexCount,
 				s_scopeProfile.maskCount, s_scopeProfile.maskStart);
@@ -2247,6 +2249,7 @@ float4 main(float4 pos : SV_POSITION) : SV_Target {
 			s_scopeProfile.targetIndexCount = g->numTriangles * 3;   // 94*3 = 282
 			s_scopeProfile.maskStart = 0;
 			s_scopeProfile.maskCount = s_scopeProfile.targetIndexCount;
+			s_scopeProfile.expectedStride = 24;   // r197 实测
 			Log("[PROFILE] ATACR: shape=%s tri=%u -> idxCount=%u mask=%u@%u",
 				g->name.c_str(), g->numTriangles, s_scopeProfile.targetIndexCount,
 				s_scopeProfile.maskCount, s_scopeProfile.maskStart);
@@ -2914,7 +2917,7 @@ float4 main(float4 pos : SV_POSITION) : SV_Target {
 	static void InstallHooks()
 	{
 		const auto mh = MH_Initialize();
-		Log("[BUILD] BudgetThroughScope r198 (no-stride-limit) %s %s", __DATE__, __TIME__);
+		Log("[BUILD] BudgetThroughScope r199 (expected-stride) %s %s", __DATE__, __TIME__);
 		Log("[INIT] MH_Initialize = %d", (int)mh);
 		CreateDirectoryW(L"E:\\Custom Fallout4\\shots", nullptr);
 
