@@ -3,6 +3,11 @@
 
 #include <MinHook.h>
 
+// r213: 从 libxse/commonlibf4 复制的材质类型（powerof3 缺这一个头文件）。
+// 它继承 powerof3 里已有的 BSShaderMaterial，只补 textureSet 成员。
+// 若两版本 ABI 不一致，运行时指针会明显异常 —— 探针会打印出来。
+#include "RE_B_BSLightingShaderMaterialBase.h"
+
 namespace RC
 {
 	// ======================= 日志 =======================
@@ -2537,6 +2542,35 @@ float4 main(float4 pos : SV_POSITION) : SV_Target {
 					}
 				}
 
+				// r213: 探针 —— 读 Reticle 的材质与贴图路径（验证 powerof3 + 复制头文件的 ABI）
+				{
+					static bool s_retexProbe = false;
+					if (!s_retexProbe) {
+						if (auto* retR = FindNode(a_pc, "Reticle")) {
+							if (auto* triR = retR->IsTriShape()) {
+								s_retexProbe = true;
+								auto* prop0 = triR->properties[0].get();
+								Log("[RETEX] shape=%s tri=%u vert=%u prop0=%p",
+									retR->name.c_str(), triR->numTriangles, (unsigned)triR->numVertices, (void*)prop0);
+								if (prop0) {
+									auto* shader = static_cast<RE::BSShaderProperty*>(prop0);
+									auto* mat = shader->material;
+									Log("[RETEX] material=%p", (void*)mat);
+									if (mat) {
+										auto* lm = static_cast<RE::BSLightingShaderMaterialBase*>(mat);
+										auto* tset = lm->textureSet.get();
+										Log("[RETEX] textureSet=%p", (void*)tset);
+										if (tset) {
+											const char* pK = tset->GetTextureFilename(RE::BSShaderProperty::TextureTypeEnum::kBase);
+											Log("[RETEX] kBase=%s", pK ? pK : "(null)");
+										}
+									}
+								}
+							}
+						}
+					}
+				}
+
 				// 处理 STS 原准星（贴在瞄具上会跟着晃）
 				// r202: 加开关 g_showScopeReticle —— 默认隐藏（false），用户可手动显示
 				{
@@ -3002,7 +3036,7 @@ float4 main(float4 pos : SV_POSITION) : SV_Target {
 	static void InstallHooks()
 	{
 		const auto mh = MH_Initialize();
-		Log("[BUILD] BudgetThroughScope r208 (maskw-log) %s %s", __DATE__, __TIME__);
+		Log("[BUILD] BudgetThroughScope r213 (retex-probe-2) %s %s", __DATE__, __TIME__);
 		Log("[INIT] MH_Initialize = %d", (int)mh);
 		CreateDirectoryW(L"E:\\Custom Fallout4\\shots", nullptr);
 
