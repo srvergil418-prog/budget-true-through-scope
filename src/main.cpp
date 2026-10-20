@@ -2487,15 +2487,17 @@ float4 main(float4 pos : SV_POSITION) : SV_Target {
 					}
 				}
 
-				// 隐藏原 STS 准星（它贴在瞄具上会跟着晃）
+				// 处理 STS 原准星（贴在瞄具上会跟着晃）
+				// r202: 加开关 g_showScopeReticle —— 默认隐藏（false），用户可手动显示
 				{
 					auto* ret = FindNode(a_pc, "Reticle");
 					if (ret) {
-						if (!ret->GetAppCulled()) {
-							ret->SetAppCulled(true);
+						const bool wantHidden = !g_showScopeReticle;
+						if (wantHidden != ret->GetAppCulled()) {
+							ret->SetAppCulled(wantHidden);
 							if (s_hideLog < 20) {
 								s_hideLog++;
-								Log("[CULL] hid %s", ret->name.c_str());
+								Log("[CULL] %s %s", wantHidden ? "hid" : "showed", ret->name.c_str());
 							}
 						}
 					} else if (!s_lastADS) {
@@ -2950,7 +2952,7 @@ float4 main(float4 pos : SV_POSITION) : SV_Target {
 	static void InstallHooks()
 	{
 		const auto mh = MH_Initialize();
-		Log("[BUILD] BudgetThroughScope r201 (tabs-menu) %s %s", __DATE__, __TIME__);
+		Log("[BUILD] BudgetThroughScope r202 (tabs+reticle-switch) %s %s", __DATE__, __TIME__);
 		Log("[INIT] MH_Initialize = %d", (int)mh);
 		CreateDirectoryW(L"E:\\Custom Fallout4\\shots", nullptr);
 
