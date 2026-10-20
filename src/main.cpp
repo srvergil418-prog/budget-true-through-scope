@@ -1219,7 +1219,7 @@ float4 main(float4 pos : SV_POSITION) : SV_Target {
 				UINT stD = 0, ofD = 0;
 				a_ctx->IAGetVertexBuffers(0, 1, &vbD, &stD, &ofD);
 				if (vbD) vbD->Release();
-				if (stD == 20) {
+				if (stD == 20 && colorD) {   // r194: 只记颜色 pass，避免预算被深度 pass 占满
 					++s_dpLog;
 					Log("[DPARAM] count=%u start=%u base=%d | stride=%u voff=%u | color=%d | expect=%u",
 						a_count, a_start, a_base, stD, ofD, colorD ? 1 : 0, s_scopeProfile.targetIndexCount);
@@ -2206,6 +2206,18 @@ float4 main(float4 pos : SV_POSITION) : SV_Target {
 			Log("[PROFILE] ATACR: shape=%s tri=%u -> idxCount=%u mask=%u@%u",
 				g->name.c_str(), g->numTriangles, s_scopeProfile.targetIndexCount,
 				s_scopeProfile.maskCount, s_scopeProfile.maskStart);
+
+			// r194: 记录目标节点与整条祖先链的 cull 状态（GPT 要求，仅取证不改行为）
+			Log("[PROFILE-CULL] target=%s culled=%d", g->name.c_str(), g->GetAppCulled() ? 1 : 0);
+			{
+				auto* p = g->parent;
+				int d = 0;
+				while (p && d < 8) {
+					Log("[PROFILE-CULL] chain[%d]=%s culled=%d", d, p->name.c_str(), p->GetAppCulled() ? 1 : 0);
+					p = p->parent;
+					++d;
+				}
+			}
 			return;
 		}
 
@@ -2825,7 +2837,7 @@ float4 main(float4 pos : SV_POSITION) : SV_Target {
 	static void InstallHooks()
 	{
 		const auto mh = MH_Initialize();
-		Log("[BUILD] BudgetThroughScope r193 (atacr-dparam) %s %s", __DATE__, __TIME__);
+		Log("[BUILD] BudgetThroughScope r194 (atacr-cullprobe) %s %s", __DATE__, __TIME__);
 		Log("[INIT] MH_Initialize = %d", (int)mh);
 		CreateDirectoryW(L"E:\\Custom Fallout4\\shots", nullptr);
 
