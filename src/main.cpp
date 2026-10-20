@@ -1249,7 +1249,8 @@ float4 main(float4 pos : SV_POSITION) : SV_Target {
 
 		// ======================= r169: mask 模式 =======================
 		// 保留原始材质绘制，再追加一次 B 组绘制写进 R8 mask
-		if (g_maskEnabled && g_ads.load() && a_count == 384 && a_start == 0 && s_maskRTV && s_psMask) {
+		if (g_maskEnabled && g_ads.load() && s_scopeProfile.targetIndexCount > 0
+			&& a_count == s_scopeProfile.targetIndexCount && a_start == 0 && s_maskRTV && s_psMask) {
 			ID3D11PixelShader* psM = nullptr;
 			a_ctx->PSGetShader(&psM, nullptr, nullptr);
 			const bool colorM = (psM != nullptr);
@@ -1283,7 +1284,7 @@ float4 main(float4 pos : SV_POSITION) : SV_Target {
 				a_ctx->OMSetRenderTargets(1, maskList, nullptr);
 				a_ctx->PSSetShader(s_psMask, nullptr, 0);
 				a_ctx->OMSetDepthStencilState(s_dsNoDepthTest, 0);
-				s_origDrawIndexed(a_ctx, 192, a_start, a_base);
+				s_origDrawIndexed(a_ctx, s_scopeProfile.maskCount, a_start + s_scopeProfile.maskStart, a_base);
 
 				// 3) 恢复
 				a_ctx->OMSetRenderTargets(8, oldRTVs, oldDSV);
@@ -1350,7 +1351,8 @@ float4 main(float4 pos : SV_POSITION) : SV_Target {
 		// ======================= r166: 深度预 pass 不写深度（验证深度因果） =======================
 		// 假设：深度预 pass 写入 Lense 深度 → 目镜区域内的场景被深度测试拒绝 → 全黑。
 		// 实验：只把这条 pass 的 DepthWriteMask 改成 0，其余全部不动。
-		if (g_skipDepthWrite && g_ads.load() && a_count == 384 && a_start == 0) {
+		if (g_skipDepthWrite && g_ads.load() && s_scopeProfile.targetIndexCount > 0
+			&& a_count == s_scopeProfile.targetIndexCount && a_start == 0) {
 			ID3D11PixelShader* psDW = nullptr;
 			a_ctx->PSGetShader(&psDW, nullptr, nullptr);
 			const bool isDepthDW = (psDW == nullptr);
@@ -2127,6 +2129,69 @@ float4 main(float4 pos : SV_POSITION) : SV_Target {
 		Log("[P1] slot=%d === capture done ===", a_slot);
 	}
 
+	// ======================= r191: 瞄具白名单配置 =======================
+	// 每种瞄具表达「mask 用哪个 shape + 用多少索引」。
+	// K98k 是 index-subset（一个 shape 两片，只画 B 组 0..191）；
+	// ATACR 是 whole-shape（rear_glass 独立一片，整片都画）。
+	struct ScopeProfile
+	{
+		const char* name = "unknown";
+		UINT targetIndexCount = 0;   // 该瞄具目标 draw 的索引总数
+		UINT maskStart = 0;          // mask 绘制的起始索引
+		UINT maskCount = 0;          // mask 绘制的索引数量
+	};
+	static ScopeProfile s_scopeProfile;
+
+	// 递归查找名字包含指定子串的 TriShape
+	static RE::BSTriShape* FindShapeLike(RE::NiAVObject* a_root, const char* a_sub)
+	{
+		if (!a_root) return nullptr;
+		if (a_root->IsTriShape()) {
+			if (strstr(a_root->name.c_str(), a_sub)) return a_root->IsTriShape();
+			return nullptr;
+		}
+		if (auto* node = a_root->IsNode()) {
+			for (auto& ch : node->children) {
+				if (!ch) continue;
+				if (auto* r = FindShapeLike(ch.get(), a_sub)) return r;
+			}
+		}
+		return nullptr;
+	}
+
+	// 根据 ScopeNormal 子树判定当前瞄具属于哪个已验证家族
+	static void IdentifyScopeProfile(RE::NiAVObject* a_scopeNormal)
+	{
+		s_scopeProfile = ScopeProfile{};
+		if (!a_scopeNormal) return;
+
+		// K98k：节点名含 "Lense"（注意 ATACR 是 LensFrontB，不含 "Lense"）
+		if (auto* l = FindShapeLike(a_scopeNormal, "Lense")) {
+			s_scopeProfile.name = "K98k";
+			s_scopeProfile.targetIndexCount = l->numTriangles * 3;   // 128*3 = 384
+			s_scopeProfile.maskStart = 0;
+			s_scopeProfile.maskCount = 192;                          // 只画 B 组
+			Log("[PROFILE] K98k: shape=%s tri=%u -> idxCount=%u mask=%u@%u",
+				l->name.c_str(), l->numTriangles, s_scopeProfile.targetIndexCount,
+				s_scopeProfile.maskCount, s_scopeProfile.maskStart);
+			return;
+		}
+
+		// Nightforce ATACR：rear_glass 是独立 shape，整片都画
+		if (auto* g = FindShapeLike(a_scopeNormal, "rear_glass")) {
+			s_scopeProfile.name = "ATACR";
+			s_scopeProfile.targetIndexCount = g->numTriangles * 3;   // 94*3 = 282
+			s_scopeProfile.maskStart = 0;
+			s_scopeProfile.maskCount = s_scopeProfile.targetIndexCount;
+			Log("[PROFILE] ATACR: shape=%s tri=%u -> idxCount=%u mask=%u@%u",
+				g->name.c_str(), g->numTriangles, s_scopeProfile.targetIndexCount,
+				s_scopeProfile.maskCount, s_scopeProfile.maskStart);
+			return;
+		}
+
+		Log("[PROFILE] unknown scope (no Lense / rear_glass)");
+	}
+
 	// ======================= ScopeNormal 子树递归枚举 =======================
 	// r189: 位置采集上下文（相机 / 瞄具原点 / 三根局部轴），供 DumpSubtreeRec 使用
 	static RE::NiPoint3 s_subCamPos{};
@@ -2341,6 +2406,9 @@ float4 main(float4 pos : SV_POSITION) : SV_Target {
 				if (!s_lastADS) {
 					// P0：递归枚举整个 ScopeNormal 子树（确认是否漏了 shape）
 					if (auto* sn2 = FindNode(a_pc, "ScopeNormal")) {
+						// r191: 判定当前瞄具属于哪个已验证家族（白名单）
+						IdentifyScopeProfile(sn2);
+
 						// r184: 只要瞄具节点变了就重新 dump，不再限制总次数
 						// （换武器/换瞄具后 ScopeNormal 指针会变，这样每个瞄具都能拿到自己的结构）
 						static RE::NiAVObject* s_lastScopeNormal = nullptr;
@@ -2737,7 +2805,7 @@ float4 main(float4 pos : SV_POSITION) : SV_Target {
 	static void InstallHooks()
 	{
 		const auto mh = MH_Initialize();
-		Log("[BUILD] BudgetThroughScope r190 (no-rc-lens) %s %s", __DATE__, __TIME__);
+		Log("[BUILD] BudgetThroughScope r191 (whitelist-atacr) %s %s", __DATE__, __TIME__);
 		Log("[INIT] MH_Initialize = %d", (int)mh);
 		CreateDirectoryW(L"E:\\Custom Fallout4\\shots", nullptr);
 
