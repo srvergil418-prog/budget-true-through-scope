@@ -30,17 +30,17 @@ jobs:
       - name: Checkout plugins sources
         uses: actions/checkout@v4
 
-      - name: Checkout CommonLibF4 (libxse, official)
-        # r214: powerof3 是残缺版（连 BSShaderMaterial.h 都没有），读材质必须用 libxse。
-        # libxse 只有 xmake.lua，由 CMakeLists.txt 里的 shim 直接编译 src/*.cpp。
+      - name: Checkout CommonLibF4 (powerof3 master)
+        # 回到 powerof3：能直接构建。
+        # libxse 的目录结构是 RE/B/*.h，powerof3 是 RE/Bethesda/*.h，
+        # 换库要改所有 include，成本过高 —— 材质读取功能暂时搁置。
         uses: actions/checkout@v4
         with:
-          repository: libxse/commonlibf4
-          ref: main
+          repository: powerof3/CommonLibF4
+          ref: master
           path: CommonLibF4
           fetch-depth: 0
           clean: false
-          submodules: recursive
 
       - name: Checkout ImGui (docking, for the in-game tuning menu)
         uses: actions/checkout@v4
