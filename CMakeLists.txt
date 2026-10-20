@@ -50,6 +50,8 @@ if (NOT TARGET CommonLibF4)
 		list(LENGTH CLF4_SOURCES CLF4_SOURCE_COUNT)
 		message(STATUS "CommonLibF4: xmake-only repo detected, building ${CLF4_SOURCE_COUNT} sources via CMake shim")
 		add_library(CommonLibF4 STATIC ${CLF4_SOURCES})
+		# 项目里用的是 CommonLibF4::CommonLibF4 这个名字，补别名
+		add_library(CommonLibF4::CommonLibF4 ALIAS CommonLibF4)
 		target_include_directories(CommonLibF4 PUBLIC "${CLF4_DIR}/include")
 		# libxse 要求 C++23（xmake.lua: set_languages("c++23")）
 		target_compile_features(CommonLibF4 PUBLIC cxx_std_23)
