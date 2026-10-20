@@ -415,6 +415,7 @@ namespace RC
 	static int s_cStatLarge = 0;
 	static int s_cStatStartNZ = 0;
 	static int s_cStatDetail = 0;
+	static int s_cStatFrames = 0;
 
 	// r181: 严格 Lense 识别 —— 用索引缓冲区内容判定（读一次，缓存结果）
 	// 依据（S 级，来自 NIF 字节级比对）：Lense:0 的 384 个索引只引用 0..81 顶点；
@@ -2212,6 +2213,7 @@ float4 main(float4 pos : SV_POSITION) : SV_Target {
 	// 根据 ScopeNormal 子树判定当前瞄具属于哪个已验证家族
 	static void IdentifyScopeProfile(RE::NiAVObject* a_scopeNormal)
 	{
+		const std::string prevName = s_scopeProfile.name;
 		s_scopeProfile = ScopeProfile{};
 		if (!a_scopeNormal) return;
 
@@ -2224,6 +2226,7 @@ float4 main(float4 pos : SV_POSITION) : SV_Target {
 			Log("[PROFILE] K98k: shape=%s tri=%u -> idxCount=%u mask=%u@%u",
 				l->name.c_str(), l->numTriangles, s_scopeProfile.targetIndexCount,
 				s_scopeProfile.maskCount, s_scopeProfile.maskStart);
+			if (prevName != "K98k") { s_cStatFrames = 0; s_cStatDetail = 0; }
 			return;
 		}
 
@@ -2236,6 +2239,7 @@ float4 main(float4 pos : SV_POSITION) : SV_Target {
 			Log("[PROFILE] ATACR: shape=%s tri=%u -> idxCount=%u mask=%u@%u",
 				g->name.c_str(), g->numTriangles, s_scopeProfile.targetIndexCount,
 				s_scopeProfile.maskCount, s_scopeProfile.maskStart);
+			if (prevName != "ATACR") { s_cStatFrames = 0; s_cStatDetail = 0; }
 
 			// r194: 记录目标节点与整条祖先链的 cull 状态（GPT 要求，仅取证不改行为）
 			Log("[PROFILE-CULL] target=%s culled=%d", g->name.c_str(), g->GetAppCulled() ? 1 : 0);
@@ -2404,23 +2408,33 @@ float4 main(float4 pos : SV_POSITION) : SV_Target {
 					}
 				};
 				if (g_forceLense) {
-					// r179: 不再每帧 clear（快照在进入 ADS 时已建立，SetCullRecorded 内部去重）
-					// 1) uncull Lense 及其祖先链（记录原始状态）
-					if (auto* n = FindNode(a_pc, "Lense")) {
-						SetCullRecorded(n, false);
-						auto* p = n->parent;
+					// r196: 按 profile 选目标节点 —— K98k 用 "Lense"，ATACR 用 "rear_glass"。
+					// 原来硬编码 "Lense"，ATACR 没有这个节点，所以什么都没 uncull。
+					RE::NiAVObject* target = nullptr;
+					if (auto* snP = FindNode(a_pc, "ScopeNormal")) {
+						if (strcmp(s_scopeProfile.name, "ATACR") == 0) {
+							target = FindShapeLike(snP, "rear_glass");
+						} else {
+							target = FindShapeLike(snP, "Lense");
+						}
+					}
+					if (target) {
+						SetCullRecorded(target, false);
+						auto* p = target->parent;
 						int guard = 0;
 						while (p && guard++ < 10) {
 							SetCullRecorded(p, false);
 							p = p->parent;
 						}
+					} else {
+						Log("[CULL] forceLense: target NOT found (profile=%s)", s_scopeProfile.name);
 					}
 					// 2) cull 镜筒/镜架（记录原始状态），让目镜内视野干净
 					const char* others[] = { "polySurface22", "Mount1", "Mount2" };
 					for (auto* o : others) {
 						if (auto* on = FindNode(a_pc, o)) SetCullRecorded(on, true);
 					}
-					Log("[CULL] ADS enter: modified %zu nodes (orig recorded)", s_cullRec.size());
+					Log("[CULL] ADS enter: profile=%s modified %zu nodes (orig recorded)", s_scopeProfile.name, s_cullRec.size());
 				}
 				else if (g_forcePoly)    ShowOnly("polySurface22");
 				else if (g_forceMount1)  ShowOnly("Mount1");
@@ -2786,7 +2800,6 @@ float4 main(float4 pos : SV_POSITION) : SV_Target {
 
 		// r195: 颜色 pass 全量统计摘要（每帧输出一次，然后清零）
 		if (s_cStatTotal > 0) {
-			static int s_cStatFrames = 0;
 			if (s_cStatFrames < 40) {
 				++s_cStatFrames;
 				// 拼出 stride 分布（只列非零）
@@ -2890,7 +2903,7 @@ float4 main(float4 pos : SV_POSITION) : SV_Target {
 	static void InstallHooks()
 	{
 		const auto mh = MH_Initialize();
-		Log("[BUILD] BudgetThroughScope r195 (cstat-layers) %s %s", __DATE__, __TIME__);
+		Log("[BUILD] BudgetThroughScope r196 (profile-target) %s %s", __DATE__, __TIME__);
 		Log("[INIT] MH_Initialize = %d", (int)mh);
 		CreateDirectoryW(L"E:\\Custom Fallout4\\shots", nullptr);
 
