@@ -2537,43 +2537,6 @@ float4 main(float4 pos : SV_POSITION) : SV_Target {
 					}
 				}
 
-				// r216: 探针 —— 读 Reticle 的材质与贴图路径
-				// 链路：BSTriShape.properties[0] -> BSShaderProperty.material(0x58)
-				//       -> BSLightingShaderMaterialBase.textureSet(0x70)
-				//       -> BSTextureSet::GetTextureFilename(kBase)
-				{
-					static bool s_retexProbe = false;
-					if (!s_retexProbe) {
-						if (auto* retR = FindNode(a_pc, "Reticle")) {
-							if (auto* triR = retR->IsTriShape()) {
-								s_retexProbe = true;
-								auto* prop0 = triR->properties[0].get();
-								Log("[RETEX] shape=%s tri=%u vert=%u prop0=%p",
-									retR->name.c_str(), triR->numTriangles, (unsigned)triR->numVertices, (void*)prop0);
-								// r218: 纯偏移读取（绕开 powerof3 缺失的材质类型）
-								// material @0x58（BSShaderProperty::material）
-								// textureSet @0x70（BSLightingShaderMaterialBase::textureSet）
-								// vtable[0x29] = BSTextureSet::GetTextureFilename
-								if (prop0) {
-									auto* mat = *(void**)((uint8_t*)prop0 + 0x58);
-									Log("[RETEX] material=%p", mat);
-									if (mat) {
-										auto* tset = *(void**)((uint8_t*)mat + 0x70);
-										Log("[RETEX] textureSet=%p", tset);
-										if (tset) {
-											auto** vt = *(void***)tset;
-											using FnGetTex = const char* (*)(void*, int);
-											auto* fn = (FnGetTex)vt[0x29 / 8];
-											const char* pK = fn(tset, 0);
-											Log("[RETEX] kBase=%s", pK ? pK : "(null)");
-										}
-									}
-								}
-							}
-						}
-					}
-				}
-
 				// 处理 STS 原准星（贴在瞄具上会跟着晃）
 				// r202: 加开关 g_showScopeReticle —— 默认隐藏（false），用户可手动显示
 				{
@@ -3039,7 +3002,7 @@ float4 main(float4 pos : SV_POSITION) : SV_Target {
 	static void InstallHooks()
 	{
 		const auto mh = MH_Initialize();
-		Log("[BUILD] BudgetThroughScope r218 (offset-probe) %s %s", __DATE__, __TIME__);
+		Log("[BUILD] BudgetThroughScope r219 (rollback) %s %s", __DATE__, __TIME__);
 		Log("[INIT] MH_Initialize = %d", (int)mh);
 		CreateDirectoryW(L"E:\\Custom Fallout4\\shots", nullptr);
 
