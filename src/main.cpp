@@ -408,6 +408,13 @@ namespace RC
 	static ID3D11Buffer* s_maskVB = nullptr;
 	static UINT s_maskVoff = 0;
 	static std::atomic<int> s_dwSkipped{ 0 };   // r178: 本帧跳过深度写入的次数
+	// r195: 颜色 pass 两层诊断统计
+	static int s_cStatTotal = 0;
+	static int s_cStatStride[65] = {};
+	static int s_cStatSmall = 0;
+	static int s_cStatLarge = 0;
+	static int s_cStatStartNZ = 0;
+	static int s_cStatDetail = 0;
 
 	// r181: 严格 Lense 识别 —— 用索引缓冲区内容判定（读一次，缓存结果）
 	// 依据（S 级，来自 NIF 字节级比对）：Lense:0 的 384 个索引只引用 0..81 顶点；
@@ -1206,24 +1213,47 @@ float4 main(float4 pos : SV_POSITION) : SV_Target {
 			}
 		}
 
-		// r193: ATACR 诊断 —— 记录 ADS 时所有 stride==20 的 draw 参数，
-		// 用来确认 rear_glass 实际的 IndexCount 是不是 numTriangles*3。
-		if (g_ads.load() && s_scopeProfile.name && strcmp(s_scopeProfile.name, "ATACR") == 0) {
-			static int s_dpLog = 0;
-			if (s_dpLog < 30) {
-				ID3D11PixelShader* psD = nullptr;
-				a_ctx->PSGetShader(&psD, nullptr, nullptr);
-				const bool colorD = (psD != nullptr);
-				if (psD) psD->Release();
-				ID3D11Buffer* vbD = nullptr;
-				UINT stD = 0, ofD = 0;
-				a_ctx->IAGetVertexBuffers(0, 1, &vbD, &stD, &ofD);
-				if (vbD) vbD->Release();
-				if (stD == 20 && colorD) {   // r194: 只记颜色 pass，避免预算被深度 pass 占满
-					++s_dpLog;
-					Log("[DPARAM] count=%u start=%u base=%d | stride=%u voff=%u | color=%d | expect=%u",
-						a_count, a_start, a_base, stD, ofD, colorD ? 1 : 0, s_scopeProfile.targetIndexCount);
+		// ======================= r195: 颜色 pass 两层诊断 =======================
+		// 层 A：全量统计（不因任何过滤而丢失覆盖率）
+		// 层 B：候选详单（100~1000 索引，或 start != 0），记录 stride 但不做硬过滤
+		if (g_ads.load()) {
+			ID3D11PixelShader* psS = nullptr;
+			a_ctx->PSGetShader(&psS, nullptr, nullptr);
+			const bool colorS = (psS != nullptr);
+			if (psS) psS->Release();
+
+			if (colorS) {
+				ID3D11Buffer* vbS = nullptr;
+				UINT stS = 0, ofS = 0;
+				a_ctx->IAGetVertexBuffers(0, 1, &vbS, &stS, &ofS);
+
+				// --- 层 A：统计 ---
+				++s_cStatTotal;
+				if (stS < 65) ++s_cStatStride[stS];
+				if (a_count >= 100 && a_count <= 1000) ++s_cStatSmall;
+				else if (a_count > 1000) ++s_cStatLarge;
+				if (a_start != 0) ++s_cStatStartNZ;
+
+				// --- 层 B：候选详单 ---
+				const bool isCand = (a_count >= 100 && a_count <= 1000) || (a_start != 0);
+				if (isCand && s_cStatDetail < 60) {
+					++s_cStatDetail;
+					ID3D11Buffer* ibS = nullptr;
+					DXGI_FORMAT fmtS = DXGI_FORMAT_UNKNOWN;
+					UINT ioffS = 0;
+					a_ctx->IAGetIndexBuffer(&ibS, &fmtS, &ioffS);
+
+					D3D11_BUFFER_DESC vbd{}, ibd{};
+					if (vbS) vbS->GetDesc(&vbd);
+					if (ibS) ibS->GetDesc(&ibd);
+
+					Log("[CDETAIL] #%d count=%u start=%u base=%d | stride=%u voff=%u | VB=%p bw=%u | IB=%p bw=%u fmt=%d ioff=%u | expect=%u",
+						s_cStatDetail, a_count, a_start, a_base, stS, ofS,
+						(void*)vbS, vbd.ByteWidth, (void*)ibS, ibd.ByteWidth, (int)fmtS, ioffS,
+						s_scopeProfile.targetIndexCount);
+					if (ibS) ibS->Release();
 				}
+				if (vbS) vbS->Release();
 			}
 		}
 
@@ -2754,6 +2784,29 @@ float4 main(float4 pos : SV_POSITION) : SV_Target {
 			s_frameStencilOn = 0;
 		}
 
+		// r195: 颜色 pass 全量统计摘要（每帧输出一次，然后清零）
+		if (s_cStatTotal > 0) {
+			static int s_cStatFrames = 0;
+			if (s_cStatFrames < 40) {
+				++s_cStatFrames;
+				// 拼出 stride 分布（只列非零）
+				char buf[256] = {};
+				int w = 0;
+				for (int i = 0; i < 65; ++i) {
+					if (s_cStatStride[i] > 0 && w < 200) {
+						w += sprintf_s(buf + w, sizeof(buf) - w, "%d:%d ", i, s_cStatStride[i]);
+					}
+				}
+				Log("[CSTAT] colorDraws=%d | small(100-1000)=%d large=%d startNZ=%d | stride[%s] | profile=%s",
+					s_cStatTotal, s_cStatSmall, s_cStatLarge, s_cStatStartNZ, buf, s_scopeProfile.name);
+			}
+			s_cStatTotal = 0;
+			s_cStatSmall = 0;
+			s_cStatLarge = 0;
+			s_cStatStartNZ = 0;
+			ZeroMemory(s_cStatStride, sizeof(s_cStatStride));
+		}
+
 		// 截图：F6 手动；抑制窗口内每 60 帧自动一张
 		{
 			auto* rdShot = RE::BSGraphics::RendererData::GetSingleton();
@@ -2837,7 +2890,7 @@ float4 main(float4 pos : SV_POSITION) : SV_Target {
 	static void InstallHooks()
 	{
 		const auto mh = MH_Initialize();
-		Log("[BUILD] BudgetThroughScope r194 (atacr-cullprobe) %s %s", __DATE__, __TIME__);
+		Log("[BUILD] BudgetThroughScope r195 (cstat-layers) %s %s", __DATE__, __TIME__);
 		Log("[INIT] MH_Initialize = %d", (int)mh);
 		CreateDirectoryW(L"E:\\Custom Fallout4\\shots", nullptr);
 
