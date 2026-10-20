@@ -3,10 +3,7 @@
 
 #include <MinHook.h>
 
-// r216: powerof3 有 BSShaderProperty / BSTextureSet，只缺 BSLightingShaderMaterialBase。
-// 那个头文件从 libxse 复制过来，include 路径改成 powerof3 的 RE/Bethesda + RE/NetImmerse。
-#include <RE/Bethesda/BSShaderProperty.h>
-#include <RE/Bethesda/BSTextureSet.h>
+// r217: 只补一个缺失的类型声明；BSShaderProperty / BSTextureSet 由 PCH 提供。
 #include "RE_B_BSLightingShaderMaterialBase.h"
 
 namespace RC
