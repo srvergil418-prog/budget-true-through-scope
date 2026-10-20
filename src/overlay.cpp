@@ -325,6 +325,8 @@ float4 main(float4 pos : SV_POSITION) : SV_Target {
 		// 只在 ADS 时画。遮罩参数现在用屏幕中心 + 固定半径（见下面的 CbData），
 		// 不再依赖 g_maskR —— 镜片投影还没校准好，依赖它会整块裁掉准星。
 		if (!g_ads.load()) return;
+		// r205: 只在识别到 BTTS 瞄具时画准星；机械瞄具/未知瞄具不画
+		if (!g_scopeValid) return;
 
 		ID3D11Device* dev = nullptr;
 		ID3D11DeviceContext* ctx = nullptr;
