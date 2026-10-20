@@ -2537,6 +2537,33 @@ float4 main(float4 pos : SV_POSITION) : SV_Target {
 					}
 				}
 
+				// r220: 安全探针 —— 只读指针和 vtable[0]，不读任何成员字段。
+				// 上一版用 +0x58 读 material 得到 0x4010ED（代码段地址），说明 properties[0] 不是 BSShaderProperty。
+				{
+					static bool s_propProbe = false;
+					if (!s_propProbe) {
+						if (auto* retP = FindNode(a_pc, "Reticle")) {
+							if (auto* triP = retP->IsTriShape()) {
+								s_propProbe = true;
+								auto* p0 = triP->properties[0].get();
+								auto* p1 = triP->properties[1].get();
+								Log("[PROP] Reticle tri=%u vert=%u | p0=%p p1=%p",
+									triP->numTriangles, (unsigned)triP->numVertices, (void*)p0, (void*)p1);
+								if (p0) {
+									auto** v0 = *(void***)p0;
+									Log("[PROP] p0 vtbl=%p [0]=%p [1]=%p [2]=%p",
+										(void*)v0, v0 ? v0[0] : nullptr, v0 ? v0[1] : nullptr, v0 ? v0[2] : nullptr);
+								}
+								if (p1) {
+									auto** v1 = *(void***)p1;
+									Log("[PROP] p1 vtbl=%p [0]=%p [1]=%p [2]=%p",
+										(void*)v1, v1 ? v1[0] : nullptr, v1 ? v1[1] : nullptr, v1 ? v1[2] : nullptr);
+								}
+							}
+						}
+					}
+				}
+
 				// 处理 STS 原准星（贴在瞄具上会跟着晃）
 				// r202: 加开关 g_showScopeReticle —— 默认隐藏（false），用户可手动显示
 				{
@@ -3002,7 +3029,7 @@ float4 main(float4 pos : SV_POSITION) : SV_Target {
 	static void InstallHooks()
 	{
 		const auto mh = MH_Initialize();
-		Log("[BUILD] BudgetThroughScope r219 (rollback) %s %s", __DATE__, __TIME__);
+		Log("[BUILD] BudgetThroughScope r220 (prop-probe) %s %s", __DATE__, __TIME__);
 		Log("[INIT] MH_Initialize = %d", (int)mh);
 		CreateDirectoryW(L"E:\\Custom Fallout4\\shots", nullptr);
 
