@@ -3,6 +3,12 @@
 
 #include <MinHook.h>
 
+// r216: powerof3 有 BSShaderProperty / BSTextureSet，只缺 BSLightingShaderMaterialBase。
+// 那个头文件从 libxse 复制过来，include 路径改成 powerof3 的 RE/Bethesda + RE/NetImmerse。
+#include <RE/Bethesda/BSShaderProperty.h>
+#include <RE/Bethesda/BSTextureSet.h>
+#include "RE_B_BSLightingShaderMaterialBase.h"
+
 namespace RC
 {
 	// ======================= 日志 =======================
@@ -2537,6 +2543,38 @@ float4 main(float4 pos : SV_POSITION) : SV_Target {
 					}
 				}
 
+				// r216: 探针 —— 读 Reticle 的材质与贴图路径
+				// 链路：BSTriShape.properties[0] -> BSShaderProperty.material(0x58)
+				//       -> BSLightingShaderMaterialBase.textureSet(0x70)
+				//       -> BSTextureSet::GetTextureFilename(kBase)
+				{
+					static bool s_retexProbe = false;
+					if (!s_retexProbe) {
+						if (auto* retR = FindNode(a_pc, "Reticle")) {
+							if (auto* triR = retR->IsTriShape()) {
+								s_retexProbe = true;
+								auto* prop0 = triR->properties[0].get();
+								Log("[RETEX] shape=%s tri=%u vert=%u prop0=%p",
+									retR->name.c_str(), triR->numTriangles, (unsigned)triR->numVertices, (void*)prop0);
+								if (prop0) {
+									auto* shader = static_cast<RE::BSShaderProperty*>(prop0);
+									auto* mat = shader->material;
+									Log("[RETEX] material=%p", (void*)mat);
+									if (mat) {
+										auto* lm = static_cast<RE::BSLightingShaderMaterialBase*>(mat);
+										auto* tset = lm->textureSet.get();
+										Log("[RETEX] textureSet=%p", (void*)tset);
+										if (tset) {
+											const char* pK = tset->GetTextureFilename(RE::BSShaderProperty::TextureTypeEnum::kBase);
+											Log("[RETEX] kBase=%s", pK ? pK : "(null)");
+										}
+									}
+								}
+							}
+						}
+					}
+				}
+
 				// 处理 STS 原准星（贴在瞄具上会跟着晃）
 				// r202: 加开关 g_showScopeReticle —— 默认隐藏（false），用户可手动显示
 				{
@@ -3002,7 +3040,7 @@ float4 main(float4 pos : SV_POSITION) : SV_Target {
 	static void InstallHooks()
 	{
 		const auto mh = MH_Initialize();
-		Log("[BUILD] BudgetThroughScope r215 (stable) %s %s", __DATE__, __TIME__);
+		Log("[BUILD] BudgetThroughScope r216 (retex-powered) %s %s", __DATE__, __TIME__);
 		Log("[INIT] MH_Initialize = %d", (int)mh);
 		CreateDirectoryW(L"E:\\Custom Fallout4\\shots", nullptr);
 
