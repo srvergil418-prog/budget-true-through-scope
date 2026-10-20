@@ -1,9 +1,5 @@
 #pragma once
 
-#include "RE/Bethesda/BSShaderMaterial.h"
-#include "RE/Bethesda/BSLock.h"
-#include "RE/NetImmerse/NiColor.h"
-#include "RE/NetImmerse/NiPointer.h"
 
 namespace RE
 {
