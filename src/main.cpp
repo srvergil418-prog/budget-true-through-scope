@@ -2067,18 +2067,31 @@ float4 main(float4 pos : SV_POSITION) : SV_Target {
 				// Lense:0 是一组节点（Lense + polySurface22 + Mount1 + Mount2 同级）。
 				// uncull 父链会把整组都带出来，所以这里做「互斥显示」：
 				// 勾哪个就只显示哪个，其余三个强制隐藏。
-				auto ShowOnly = [a_pc](const char* a_target) {
+				// r176: FORCE Lense 只 uncull Lense（让 mask 能写入），不再 cull 其他节点。
+				// 原来的「互斥显示」会把镜筒/镜架一起剔除，导致腰射时瞄具消失、只剩目镜。
+				auto UncullOnly = [a_pc](const char* a_target) {
 					auto* n = FindNode(a_pc, a_target);
 					if (!n) return;
 					if (n->GetAppCulled()) n->SetAppCulled(false);
-					// 目标自己的祖先链要 uncull
+					// 目标自己的祖先链要 uncull（ScopeNormal 被 STS 剔除时，子节点画不出来）
 					auto* p = n->parent;
 					int guard = 0;
 					while (p && guard++ < 10) {
 						if (p->GetAppCulled()) p->SetAppCulled(false);
 						p = p->parent;
 					}
-					// 其余三个强制隐藏
+				};
+				// 诊断用的「互斥显示」：只在显式选择 polySurface/Mount 时使用
+				auto ShowOnly = [a_pc](const char* a_target) {
+					auto* n = FindNode(a_pc, a_target);
+					if (!n) return;
+					if (n->GetAppCulled()) n->SetAppCulled(false);
+					auto* p = n->parent;
+					int guard = 0;
+					while (p && guard++ < 10) {
+						if (p->GetAppCulled()) p->SetAppCulled(false);
+						p = p->parent;
+					}
 					const char* others[] = { "Lense", "polySurface22", "Mount1", "Mount2" };
 					for (auto* o : others) {
 						if (strcmp(o, a_target) == 0) continue;
@@ -2087,10 +2100,10 @@ float4 main(float4 pos : SV_POSITION) : SV_Target {
 						}
 					}
 				};
-				if (g_forceLense)  ShowOnly("Lense");
-				else if (g_forcePoly)   ShowOnly("polySurface22");
-				else if (g_forceMount1) ShowOnly("Mount1");
-				else if (g_forceMount2) ShowOnly("Mount2");
+				if (g_forceLense)        UncullOnly("Lense");
+				else if (g_forcePoly)    ShowOnly("polySurface22");
+				else if (g_forceMount1)  ShowOnly("Mount1");
+				else if (g_forceMount2)  ShowOnly("Mount2");
 				// 注意：不做「取消勾选后恢复」。SetAppCulled 是节点状态，我们无权改动，
 				// 强行 cull 会污染 STS 自己的剔除逻辑（导致腰射没有瞄具）。
 				// 取消勾选时什么都不做，让 STS 按自己的 ADS 逻辑管理可见性。
