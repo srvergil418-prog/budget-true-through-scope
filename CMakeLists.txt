@@ -53,6 +53,13 @@ if (NOT TARGET CommonLibF4)
 		# 项目里用的是 CommonLibF4::CommonLibF4 这个名字，补别名
 		add_library(CommonLibF4::CommonLibF4 ALIAS CommonLibF4)
 		target_include_directories(CommonLibF4 PUBLIC "${CLF4_DIR}/include")
+		# r212: libxse 的 PCH 依赖 commonlib-shared 里的 REL/REL.h 等头文件
+		if (EXISTS "${CLF4_DIR}/lib/commonlib-shared/include")
+			target_include_directories(CommonLibF4 PUBLIC "${CLF4_DIR}/lib/commonlib-shared/include")
+			message(STATUS "CommonLibF4: added commonlib-shared include path")
+		else ()
+			message(WARNING "CommonLibF4: commonlib-shared/include not found (submodule not fetched?)")
+		endif ()
 		# libxse 要求 C++23（xmake.lua: set_languages("c++23")）— r211 force push
 		target_compile_features(CommonLibF4 PUBLIC cxx_std_23)
 		# 它的 PCH
