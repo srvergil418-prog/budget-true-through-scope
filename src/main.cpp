@@ -391,6 +391,16 @@ namespace RC
 	static ID3D11DepthStencilState* s_dsNoDepthWrite = nullptr;   // r166: 不写深度
 	static ID3D11DepthStencilState* s_dsNoDepthTest = nullptr;   // r168: 完全不测深度
 	// r169: 目镜 mask 资源
+	// r191: 瞄具白名单配置（必须在使用点之前声明）
+	// K98k = index-subset（一个 shape 两片，只画 B 组）；ATACR = whole-shape（rear_glass 整片）
+	struct ScopeProfile
+	{
+		const char* name = "unknown";
+		UINT targetIndexCount = 0;
+		UINT maskStart = 0;
+		UINT maskCount = 0;
+	};
+	static ScopeProfile s_scopeProfile;
 	static ID3D11Texture2D* s_maskTex = nullptr;
 	static ID3D11Texture2D* s_maskStaging = nullptr;   // r172: 读回用
 	static std::atomic<int> s_maskWrites{ 0 };   // r173: mask 写入总次数
@@ -2129,18 +2139,7 @@ float4 main(float4 pos : SV_POSITION) : SV_Target {
 		Log("[P1] slot=%d === capture done ===", a_slot);
 	}
 
-	// ======================= r191: 瞄具白名单配置 =======================
-	// 每种瞄具表达「mask 用哪个 shape + 用多少索引」。
-	// K98k 是 index-subset（一个 shape 两片，只画 B 组 0..191）；
-	// ATACR 是 whole-shape（rear_glass 独立一片，整片都画）。
-	struct ScopeProfile
-	{
-		const char* name = "unknown";
-		UINT targetIndexCount = 0;   // 该瞄具目标 draw 的索引总数
-		UINT maskStart = 0;          // mask 绘制的起始索引
-		UINT maskCount = 0;          // mask 绘制的索引数量
-	};
-	static ScopeProfile s_scopeProfile;
+	// ======================= r191: 瞄具白名单（结构定义已上移到全局区）=======================
 
 	// 递归查找名字包含指定子串的 TriShape
 	static RE::BSTriShape* FindShapeLike(RE::NiAVObject* a_root, const char* a_sub)
