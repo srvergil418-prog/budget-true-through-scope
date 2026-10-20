@@ -44,20 +44,25 @@ if (Test-Path (Join-Path $clf4 '.git')) {
     Push-Location $clf4
     try {
         git fetch --depth=1 origin dev-1.10.163 2>&1 | Out-Null
-        if ($LASTEXITCODE -ne 0) { throw 'git fetch dev-1.10.163 failed' }
-        git checkout --force FETCH_HEAD -- CommonLibF4 2>&1 | Out-Null
-        if ($LASTEXITCODE -ne 0) { throw 'git checkout dev CommonLibF4 failed' }
+        if ($LASTEXITCODE -ne 0) {
+            # r208: 换成 libxse/CommonLibF4 后没有 dev-1.10.163 分支。
+            # 官方仓库本身就是 1.10.163 的布局，不需要 powerof3 那套 overlay。
+            Write-Host '  [0/4] dev-1.10.163 not present (libxse repo) - skipping overlay' -ForegroundColor Yellow
+        } else {
+            git checkout --force FETCH_HEAD -- CommonLibF4 2>&1 | Out-Null
+            if ($LASTEXITCODE -ne 0) { throw 'git checkout dev CommonLibF4 failed' }
 
-        # 自检：dev 树里那两个致命 ID 不能再出现
-        $ws = Join-Path $clf4 'CommonLibF4/include/RE/Bethesda/Workshop.h'
-        $ise = Join-Path $clf4 'CommonLibF4/include/RE/Bethesda/ImageSpaceEffect.h'
-        if ((Test-Path $ws) -and ((Get-Content $ws -Raw) -match 'REL::ID\(4797261\)')) {
-            throw 'Workshop.h still carries 4797261 after the dev overlay'
+            # 自检：dev 树里那两个致命 ID 不能再出现
+            $ws = Join-Path $clf4 'CommonLibF4/include/RE/Bethesda/Workshop.h'
+            $ise = Join-Path $clf4 'CommonLibF4/include/RE/Bethesda/ImageSpaceEffect.h'
+            if ((Test-Path $ws) -and ((Get-Content $ws -Raw) -match 'REL::ID\(4797261\)')) {
+                throw 'Workshop.h still carries 4797261 after the dev overlay'
+            }
+            if ((Test-Path $ise) -and ((Get-Content $ise -Raw) -match 'REL::ID\(2713225\)')) {
+                throw 'ImageSpaceEffect.h still carries 2713225 after the dev overlay'
+            }
+            Write-Host '  [0/4] CommonLibF4 overlaid with dev-1.10.163 (IDs valid for 1.10.163)' -ForegroundColor Green
         }
-        if ((Test-Path $ise) -and ((Get-Content $ise -Raw) -match 'REL::ID\(2713225\)')) {
-            throw 'ImageSpaceEffect.h still carries 2713225 after the dev overlay'
-        }
-        Write-Host '  [0/4] CommonLibF4 overlaid with dev-1.10.163 (IDs valid for 1.10.163)' -ForegroundColor Green
     } finally {
         Pop-Location
     }
