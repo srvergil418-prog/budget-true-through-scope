@@ -43,6 +43,7 @@ namespace RC
 	bool  g_bttsEnabled = false;
 	char  g_scopeProfileName[32] = "unknown";
 	bool  g_showScopeReticle = false;
+	bool  g_scopeValid = false;
 	int   g_crossTarget = 0;
 	float g_crossOffX = 0.0f;
 	float g_crossOffY = 0.0f;
