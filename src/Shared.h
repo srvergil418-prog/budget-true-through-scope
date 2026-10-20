@@ -74,6 +74,7 @@ namespace RC
 	extern bool  g_bttsEnabled;   // r186: 一键启用 BTTS（连带设置所有必要开关）
 	extern char  g_scopeProfileName[32];   // r201: 当前识别到的瞄具 profile 名（菜单显示用）
 	extern bool  g_showScopeReticle;      // r202: 显示 STS 原准星（贴在瞄具上），默认 false
+	extern bool  g_scopeValid;           // r205: 当前瞄具是否被 BTTS 识别（false = 机械瞄具/未知，不画准星）
 	extern ID3D11ShaderResourceView* g_maskSRV;   // overlay 读取用（main.cpp 创建）
 
 	// ---- overlay（overlay.cpp 实现）----
