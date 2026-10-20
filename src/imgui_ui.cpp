@@ -42,6 +42,7 @@ namespace RC
 	bool  g_strictDW = false;
 	bool  g_bttsEnabled = false;
 	char  g_scopeProfileName[32] = "unknown";
+	bool  g_showScopeReticle = false;
 	int   g_crossTarget = 0;
 	float g_crossOffX = 0.0f;
 	float g_crossOffY = 0.0f;
@@ -163,6 +164,8 @@ namespace RC
 					ImGui::Separator();
 					ImGui::Checkbox("show reticle", &g_screenOverlay);
 					ImGui::Checkbox("red cross (simple style)", &g_redCross);
+					ImGui::Checkbox("show scope's own reticle", &g_showScopeReticle);
+					ImGui::TextDisabled("  (the one glued to the scope, wobbles with weapon)");
 					ImGui::Spacing();
 					ImGui::Text("Detected scope: %s", g_scopeProfileName);
 					ImGui::TextDisabled("K98k = Lense:0 (384 idx, subset 192)");
