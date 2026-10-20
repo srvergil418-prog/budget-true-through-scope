@@ -152,8 +152,10 @@ namespace RC
 					g_skipDepthWrite = g_bttsEnabled;
 					g_screenOverlay = g_bttsEnabled;
 					g_strictDW = g_bttsEnabled;
-					Log("[UI] BTTS %s (forceLense=%d mask=%d clip=%d depth=%d strict=%d)",
-						g_bttsEnabled ? "ON" : "OFF", g_forceLense, g_maskEnabled, g_maskUse, g_skipDepthWrite, g_strictDW);
+					g_redCross = g_bttsEnabled;   // r187: 一并打开红十字，保证准星可见
+					Log("[UI] BTTS %s (forceLense=%d mask=%d clip=%d depth=%d strict=%d redCross=%d)",
+						g_bttsEnabled ? "ON" : "OFF", g_forceLense, g_maskEnabled, g_maskUse,
+						g_skipDepthWrite, g_strictDW, g_redCross);
 				}
 				ImGui::TextDisabled("one switch sets: lens / mask / clip / depth / strict");
 				ImGui::Separator();
@@ -215,14 +217,9 @@ namespace RC
 				Row("fov (0 = game default)", &g_fovOverride, 0.0f, 1.0f, 0.0f, 150.0f);
 			}
 
-			// ======================= 自挂镜片 nif =======================
-			if (ImGui::CollapsingHeader("Lens NIF (legacy)")) {
-				ImGui::Checkbox("spawn lens", &g_lensEnabled);
-				Row("lens X", &g_lensOffX, 0.0f, 0.5f, -100.0f, 100.0f);
-				Row("lens Y", &g_lensOffY, 0.0f, 0.5f, -100.0f, 100.0f);
-				Row("lens Z", &g_lensOffZ, 10.0f, 0.5f, -100.0f, 100.0f);
-				ImGui::TextDisabled("old approach: attached disc mesh");
-			}
+			// ======================= 自挂镜片 nif（legacy，已隐藏）=======================
+			// 旧方案（自挂 LensCircle.nif）已被 mask 方案取代，菜单里不再暴露。
+			// 代码路径保留，方便以后回溯；g_lensEnabled 默认 false，不会启动。
 
 			// ======================= 诊断（默认收起）=======================
 			if (ImGui::CollapsingHeader("Debug / diagnostics")) {
