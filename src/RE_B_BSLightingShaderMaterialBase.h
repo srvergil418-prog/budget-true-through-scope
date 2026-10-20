@@ -1,9 +1,9 @@
 #pragma once
 
-#include "RE/B/BSShaderMaterial.h"
-#include "RE/B/BSSpinLock.h"
-#include "RE/N/NiColor.h"
-#include "RE/N/NiPointer.h"
+#include "RE/Bethesda/BSShaderMaterial.h"
+#include "RE/Bethesda/BSLock.h"
+#include "RE/NetImmerse/NiColor.h"
+#include "RE/NetImmerse/NiPointer.h"
 
 namespace RE
 {
@@ -22,8 +22,7 @@ namespace RE
 		public BSShaderMaterial  // 00
 	{
 	public:
-		// r213: 去掉 RTTI/VTABLE 常量 —— powerof3 的 RTTI 枚举可能没有这两个名字。
-
+		
 		// add
 		virtual const BSLightingShaderMaterialEnvmap* IsLightingShaderMaterialEnvmap();                                          // 09
 		virtual void                                  ClearTextures();                                                           // 0A
@@ -71,5 +70,4 @@ namespace RE
 		float                          lookupScale;                    // AC
 		BSNonReentrantSpinLock         loadTextureSetLock;             // B0
 	};
-	// r213: 去掉 static_assert(sizeof == 0xC0) —— 两版本基类大小可能不同。
-}
+	}
