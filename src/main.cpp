@@ -400,6 +400,7 @@ namespace RC
 		UINT maskStart = 0;
 		UINT maskCount = 0;
 		UINT expectedStride = 0;   // r199: 该瞄具的顶点步长（诊断/校验用，0=未知）
+		UINT maxVertexIdx = 0;     // r227: 目标几何的最大顶点索引上限（用于排除同 count 的其他几何）
 	};
 	static ScopeProfile s_scopeProfile;
 	static ID3D11Texture2D* s_maskTex = nullptr;
@@ -1391,6 +1392,34 @@ float4 main(float4 pos : SV_POSITION) : SV_Target {
 
 			// r198: 不再限制 stride —— K98k 是 20，ATACR 是 24（实测）
 			if (colorM && strideM > 0) {
+				// r227: 索引内容验证 —— 杂草/贴花等几何的 IndexCount 也可能是 282/384，
+				// 只靠 count 会让它们也写进 mask（debug view 已证实：路旁杂草堆、建筑贴花都被点亮）。
+				// 判据：读这条 draw 的 IB，最大顶点索引必须 <= profile 记录的上限。
+				if (s_scopeProfile.maxVertexIdx > 0) {
+					ID3D11Buffer* ibV = nullptr;
+					DXGI_FORMAT fmtV = DXGI_FORMAT_UNKNOWN;
+					UINT ioffV = 0;
+					a_ctx->IAGetIndexBuffer(&ibV, &fmtV, &ioffV);
+					ID3D11Device* devV = nullptr;
+					a_ctx->GetDevice(&devV);
+					if (ibV && devV) {
+						const int mxV = ReadIndexBufferMax(a_ctx, devV, ibV, ioffV, fmtV, a_count);
+						if (mxV < 0 || (UINT)mxV > s_scopeProfile.maxVertexIdx) {
+							static int s_idxRejectLog = 0;
+							if (s_idxRejectLog < 20) {
+								++s_idxRejectLog;
+								Log("[MASK-IDX-REJECT] voff=%u count=%u maxIdx=%d > profile limit %u",
+									voffM, a_count, mxV, s_scopeProfile.maxVertexIdx);
+							}
+							if (devV) devV->Release();
+							if (ibV) ibV->Release();
+							if (vbM) vbM->Release();
+							return;
+						}
+					}
+					if (devV) devV->Release();
+					if (ibV) ibV->Release();
+				}
 				// r208 (GPT P0): 每次 mask 写入前记录完整身份，供事后判定是否为目标几何。
 				// 目的：ADS 过渡期准星提前出现在镜外 -> 怀疑 mask 被非目标几何/非主 pass 写入。
 				{
@@ -2370,6 +2399,7 @@ float4 main(float4 pos : SV_POSITION) : SV_Target {
 			s_scopeProfile.maskStart = 0;
 			s_scopeProfile.maskCount = 192;                          // 只画 B 组
 			s_scopeProfile.expectedStride = 20;
+			s_scopeProfile.maxVertexIdx = 81;   // Lense:0 有 82 个顶点
 			Log("[PROFILE] K98k: shape=%s tri=%u -> idxCount=%u mask=%u@%u",
 				l->name.c_str(), l->numTriangles, s_scopeProfile.targetIndexCount,
 				s_scopeProfile.maskCount, s_scopeProfile.maskStart);
@@ -2384,6 +2414,7 @@ float4 main(float4 pos : SV_POSITION) : SV_Target {
 			s_scopeProfile.maskStart = 0;
 			s_scopeProfile.maskCount = s_scopeProfile.targetIndexCount;
 			s_scopeProfile.expectedStride = 24;   // r197 实测
+			s_scopeProfile.maxVertexIdx = 63;   // rear_glass 有 64 个顶点
 			Log("[PROFILE] ATACR: shape=%s tri=%u -> idxCount=%u mask=%u@%u",
 				g->name.c_str(), g->numTriangles, s_scopeProfile.targetIndexCount,
 				s_scopeProfile.maskCount, s_scopeProfile.maskStart);
@@ -3122,7 +3153,7 @@ float4 main(float4 pos : SV_POSITION) : SV_Target {
 	static void InstallHooks()
 	{
 		const auto mh = MH_Initialize();
-		Log("[BUILD] BudgetThroughScope r226 (debug-priority) %s %s", __DATE__, __TIME__);
+		Log("[BUILD] BudgetThroughScope r227 (index-verify) %s %s", __DATE__, __TIME__);
 		Log("[INIT] MH_Initialize = %d", (int)mh);
 		CreateDirectoryW(L"E:\\Custom Fallout4\\shots", nullptr);
 
