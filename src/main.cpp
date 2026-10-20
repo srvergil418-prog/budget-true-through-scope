@@ -2434,7 +2434,26 @@ float4 main(float4 pos : SV_POSITION) : SV_Target {
 			return;
 		}
 
-		Log("[PROFILE] unknown scope (no Lense / rear_glass)");
+		// r228: Vortex Strike Eagle（M700 的另一个瞄具）
+		// 结构：ScopeNormal 下只有 StrikeEagle_Lo(主体) + StrikeEagleLens_Lo(镜片)
+		// 镜片 = 316 三角 / 180 顶点 -> 948 索引 / maxIdx <= 179
+		// 注意它是 "Lens" 不是 "Lense"，所以 K98k 规则匹配不到。
+		if (auto* g = FindShapeLike(a_scopeNormal, "StrikeEagleLens")) {
+			s_scopeProfile.name = "VortexSE";
+			s_scopeProfile.targetIndexCount = g->numTriangles * 3;   // 316*3 = 948
+			s_scopeProfile.maskStart = 0;
+			s_scopeProfile.maskCount = s_scopeProfile.targetIndexCount;
+			s_scopeProfile.expectedStride = 0;                        // 未知，先不校验
+			s_scopeProfile.maxVertexIdx = (g->numVertices > 0) ? (UINT)(g->numVertices - 1) : 0;
+			Log("[PROFILE] VortexSE: shape=%s tri=%u vert=%u -> idxCount=%u mask=%u@%u maxIdx<=%u",
+				g->name.c_str(), g->numTriangles, (unsigned)g->numVertices,
+				s_scopeProfile.targetIndexCount, s_scopeProfile.maskCount, s_scopeProfile.maskStart,
+				s_scopeProfile.maxVertexIdx);
+			if (prevName != "VortexSE") { s_cStatFrames = 0; s_cStatDetail = 0; }
+			return;
+		}
+
+		Log("[PROFILE] unknown scope (no Lense / rear_glass / StrikeEagleLens)");
 	}
 
 	// r201: 同步给菜单显示
@@ -3153,7 +3172,7 @@ float4 main(float4 pos : SV_POSITION) : SV_Target {
 	static void InstallHooks()
 	{
 		const auto mh = MH_Initialize();
-		Log("[BUILD] BudgetThroughScope r227 (index-verify) %s %s", __DATE__, __TIME__);
+		Log("[BUILD] BudgetThroughScope r228 (vortex-se) %s %s", __DATE__, __TIME__);
 		Log("[INIT] MH_Initialize = %d", (int)mh);
 		CreateDirectoryW(L"E:\\Custom Fallout4\\shots", nullptr);
 
