@@ -189,14 +189,9 @@ namespace RC
 					ImGui::Checkbox("write mask (scope geometry)", &g_maskEnabled);
 					ImGui::Checkbox("clip reticle to mask", &g_maskUse);
 					ImGui::Separator();
-					ImGui::Text("Fallback circle");
-					ImGui::Checkbox("auto (from lens direction)", &g_maskAuto);
-					Row("mask X", &g_maskOffX, 0.0f, 1.0f, -2000.0f, 2000.0f);
-					Row("mask Y", &g_maskOffY, 0.0f, 1.0f, -2000.0f, 2000.0f);
-					Row("radius", &g_maskRadius, 324.0f, 5.0f, 10.0f, 2000.0f);
-					Row("radius x (auto)", &g_maskRadiusScale, 1.0f, 0.05f, 0.1f, 5.0f);
-					ImGui::TextDisabled("red ring = mask border (screen-space circle)");
-					ImGui::Text("auto raw: (%.0f, %.0f) r=%.0f", g_maskCX, g_maskCY, g_maskR);
+					ImGui::TextDisabled("mask = the scope's own eyepiece geometry");
+					ImGui::TextDisabled("drawn directly into an R8 target each frame");
+					ImGui::TextDisabled("(old screen-space fallback circle removed)");
 					ImGui::EndTabItem();
 				}
 
