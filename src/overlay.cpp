@@ -144,13 +144,7 @@ float4 main(float4 pos : SV_POSITION) : SV_Target {
         return float4(m * 0.75, cd.g * 0.9, 0.0, 1.0);
     }
 
-    // 遮罩圆 + 红色边界（独立于准星大小）
-    if (maskR > 0.5) {
-        float2 d = p - float2(maskCX, maskCY);
-        float dist = sqrt(dot(d, d));
-        if (dist > maskR) discard;
-        if (dist > maskR - 4.0) return float4(1.0, 0.0, 0.0, 1.0);
-    }
+    // r207: 删除旧的屏幕空间圆形遮罩（红圈）—— 目镜 mask 已验证可用，不再需要 fallback。
 
     // 准星：像素坐标 -> 贴图 UV，超出准星范围就输出透明
     float2 uv = (p - float2(centerX, centerY)) / float2(boxW, boxH) + 0.5;
@@ -412,13 +406,10 @@ float4 main(float4 pos : SV_POSITION) : SV_Target {
 			cb.boxW = reticleSide;
 			cb.boxH = reticleSide;
 			cb.alphaMul = 1.0f;
-			// 遮罩：自动模式用镜片方向算出的值（可再乘一个缩放），
-			// 否则用菜单里的固定值
-			const float maskR = g_maskAuto ? (g_maskR * g_maskRadiusScale)
-			                               : ((g_maskRadius > 5.0f) ? g_maskRadius : ((float)td.Height * 0.15f));
-			cb.maskR = maskR;
-			cb.maskCX = (float)td.Width * 0.5f + (g_maskAuto ? g_maskCX : g_maskOffX);
-			cb.maskCY = (float)td.Height * 0.5f + (g_maskAuto ? g_maskCY : g_maskOffY);
+			// r207: 旧的屏幕空间圆形遮罩已删除，这里只保留 0 值（着色器不再使用）
+			cb.maskR = 0.0f;
+			cb.maskCX = (float)td.Width * 0.5f;
+			cb.maskCY = (float)td.Height * 0.5f;
 			// r169: pad0 = 是否启用目镜 mask 裁剪
 			cb.pad0 = (g_maskUse && g_maskSRV) ? 1.0f : 0.0f;
 			// r174: pad1 = 2 红色十字 / 1 双色调试（mask 红 + 准星绿）/ 0 正常
