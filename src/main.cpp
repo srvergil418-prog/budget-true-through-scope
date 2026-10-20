@@ -1296,7 +1296,7 @@ float4 main(float4 pos : SV_POSITION) : SV_Target {
 				// 识别成功后不再读（避免进入热路径）。
 				if (!s_lenseIdentified) {
 					static int s_idTries = 0;
-					if (s_idTries < 60) {
+					if (s_idTries < 600) {
 						++s_idTries;
 						ID3D11Buffer* ibI = nullptr;
 						DXGI_FORMAT fmtI = DXGI_FORMAT_UNKNOWN;
@@ -1356,10 +1356,11 @@ float4 main(float4 pos : SV_POSITION) : SV_Target {
 			UINT strideDW = 0, voffDW = 0;
 			a_ctx->IAGetVertexBuffers(0, 1, &vbDW, &strideDW, &voffDW);
 
-			// r182: 严格模式改用「索引内容识别」得到的 s_lenseVB（持有独立 COM 引用）
+			// r188: 严格模式的安全兜底 —— 识别还没完成时按宽松处理。
+			// 否则「一键开启 BTTS」(strict=on) 但识别未完成时，目镜会全黑。
 			const bool isTargetGeo = !g_strictDW
-				|| (s_lenseIdentified && s_lenseVB != nullptr
-				    && vbDW == s_lenseVB && voffDW == s_lenseVoff);
+				|| !s_lenseIdentified
+				|| (s_lenseVB != nullptr && vbDW == s_lenseVB && voffDW == s_lenseVoff);
 
 			// r183: 只在「严格模式 + 已完成识别」时记录，避免额度被识别前的记录耗尽
 			{
@@ -2678,7 +2679,7 @@ float4 main(float4 pos : SV_POSITION) : SV_Target {
 	static void InstallHooks()
 	{
 		const auto mh = MH_Initialize();
-		Log("[BUILD] BudgetThroughScope r185 (sub-pos) %s %s", __DATE__, __TIME__);
+		Log("[BUILD] BudgetThroughScope r188 (strict-fallback) %s %s", __DATE__, __TIME__);
 		Log("[INIT] MH_Initialize = %d", (int)mh);
 		CreateDirectoryW(L"E:\\Custom Fallout4\\shots", nullptr);
 
