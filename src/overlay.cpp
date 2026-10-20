@@ -118,22 +118,30 @@ SamplerState gSamp : register(s0);
 float4 main(float4 pos : SV_POSITION) : SV_Target {
     float2 p = pos.xy;
 
-    // r169: pad1 = M1 调试模式（红 = mask 区域，绿 = 准星，一次看清两者关系）
+    // pad0 = M3 才启用的 mask 裁剪（先裁，后面的十字/调试视图都会被限制在目镜内）
     float2 muv = p / float2(screenW, screenH);
     float m = gMask.Sample(gSamp, muv).r;
+    if (pad0 > 0.5 && m < 0.5) {
+        discard;
+    }
+
+    // pad1 >= 2：红色十字（醒目，用于观察裁切）
+    if (pad1 > 1.5) {
+        float2 dc = p - float2(centerX, centerY);
+        bool onH = (abs(dc.y) <= 2.0) && (abs(dc.x) <= 250.0);
+        bool onV = (abs(dc.x) <= 2.0) && (abs(dc.y) <= 250.0);
+        if (!onH && !onV) discard;
+        return float4(1.0, 0.0, 0.0, 1.0);
+    }
+
+    // pad1 = 1：双色调试（红 = mask 区域，绿 = 准星贴图）
     if (pad1 > 0.5) {
         float2 uvd = (p - float2(centerX, centerY)) / float2(boxW, boxH) + 0.5;
         float4 cd = float4(0, 0, 0, 0);
         if (uvd.x >= 0.0 && uvd.x <= 1.0 && uvd.y >= 0.0 && uvd.y <= 1.0) {
             cd = gTex.Sample(gSamp, uvd);
         }
-        // 红 = mask=1 区域；绿 = 准星贴图
         return float4(m * 0.75, cd.g * 0.9, 0.0, 1.0);
-    }
-
-    // pad0 = M3 才启用的 mask 裁剪（当前阶段保持 0）
-    if (pad0 > 0.5 && m < 0.5) {
-        discard;
     }
 
     // 遮罩圆 + 红色边界（独立于准星大小）
@@ -411,8 +419,8 @@ float4 main(float4 pos : SV_POSITION) : SV_Target {
 			cb.maskCY = (float)td.Height * 0.5f + (g_maskAuto ? g_maskCY : g_maskOffY);
 			// r169: pad0 = 是否启用目镜 mask 裁剪
 			cb.pad0 = (g_maskUse && g_maskSRV) ? 1.0f : 0.0f;
-			// r170: pad1 = M1 调试可视化（只显示 mask，红=1 黑=0）
-			cb.pad1 = g_maskDebug ? 1.0f : 0.0f;
+			// r174: pad1 = 2 红色十字 / 1 双色调试（mask 红 + 准星绿）/ 0 正常
+			cb.pad1 = g_redCross ? 2.0f : (g_maskDebug ? 1.0f : 0.0f);
 
 			D3D11_MAPPED_SUBRESOURCE ms{};
 			if (SUCCEEDED(ctx->Map(s_state.cb, 0, D3D11_MAP_WRITE_DISCARD, 0, &ms))) {
