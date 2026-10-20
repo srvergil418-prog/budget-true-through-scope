@@ -72,6 +72,7 @@ namespace RC
 	extern bool  g_redCross;      // 红色十字（overlay 层，受 mask 裁切）
 	extern bool  g_strictDW;     // r180: SKIP DEPTH 严格身份匹配（诊断用，默认关）
 	extern bool  g_bttsEnabled;   // r186: 一键启用 BTTS（连带设置所有必要开关）
+	extern char  g_scopeProfileName[32];   // r201: 当前识别到的瞄具 profile 名（菜单显示用）
 	extern ID3D11ShaderResourceView* g_maskSRV;   // overlay 读取用（main.cpp 创建）
 
 	// ---- overlay（overlay.cpp 实现）----
