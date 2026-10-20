@@ -60,6 +60,10 @@ if (NOT TARGET CommonLibF4)
 		else ()
 			message(WARNING "CommonLibF4: commonlib-shared/include not found (submodule not fetched?)")
 		endif ()
+		# r214: libxse 的 src/*.cpp 依赖这些 vcpkg 包（xmake 在 commonlib-shared 里隐式带）
+		find_package(spdlog CONFIG REQUIRED)
+		find_package(fmt CONFIG REQUIRED)
+		target_link_libraries(CommonLibF4 PUBLIC spdlog::spdlog fmt::fmt)
 		# libxse 要求 C++23（xmake.lua: set_languages("c++23")）— r211 force push
 		target_compile_features(CommonLibF4 PUBLIC cxx_std_23)
 		# 它的 PCH
