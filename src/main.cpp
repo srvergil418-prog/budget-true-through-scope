@@ -1359,7 +1359,26 @@ float4 main(float4 pos : SV_POSITION) : SV_Target {
 				a_ctx->OMSetRenderTargets(1, maskList, nullptr);
 				a_ctx->PSSetShader(s_psMask, nullptr, 0);
 				a_ctx->OMSetDepthStencilState(s_dsNoDepthTest, 0);
+
+				// r206: mask 纹理固定 1920x1080，但游戏颜色 pass 的 viewport 未必是这个尺寸。
+				// 不设 viewport 时绘制会落在纹理的一角 -> 遮罩错位（表现为准星溢出/左右各一份）。
+				D3D11_VIEWPORT oldVP{};
+				UINT vpN = 1;
+				a_ctx->RSGetViewports(&vpN, &oldVP);
+				D3D11_VIEWPORT maskVP{ 0.0f, 0.0f, 1920.0f, 1080.0f, 0.0f, 1.0f };
+				a_ctx->RSSetViewports(1, &maskVP);
+
+				static int s_vpLog = 0;
+				if (s_vpLog < 6) {
+					++s_vpLog;
+					Log("[MASK-VP] game vp=(%.0f,%.0f %.0fx%.0f) -> mask vp=1920x1080",
+						oldVP.TopLeftX, oldVP.TopLeftY, oldVP.Width, oldVP.Height);
+				}
+
 				s_origDrawIndexed(a_ctx, s_scopeProfile.maskCount, a_start + s_scopeProfile.maskStart, a_base);
+
+				// 恢复 viewport
+				if (vpN > 0) a_ctx->RSSetViewports(1, &oldVP);
 
 				// 3) 恢复
 				a_ctx->OMSetRenderTargets(8, oldRTVs, oldDSV);
@@ -2953,7 +2972,7 @@ float4 main(float4 pos : SV_POSITION) : SV_Target {
 	static void InstallHooks()
 	{
 		const auto mh = MH_Initialize();
-		Log("[BUILD] BudgetThroughScope r205 (scope-gate) %s %s", __DATE__, __TIME__);
+		Log("[BUILD] BudgetThroughScope r206 (mask-viewport) %s %s", __DATE__, __TIME__);
 		Log("[INIT] MH_Initialize = %d", (int)mh);
 		CreateDirectoryW(L"E:\\Custom Fallout4\\shots", nullptr);
 
