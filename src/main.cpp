@@ -1201,8 +1201,8 @@ float4 main(float4 pos : SV_POSITION) : SV_Target {
 				UINT oldRef = 0;
 				a_ctx->OMGetDepthStencilState(&oldDS, &oldRef);
 
-				const float clearM[4] = { 0.0f, 0.0f, 0.0f, 0.0f };
-				a_ctx->ClearRenderTargetView(s_maskRTV, clearM);
+				// 不清 mask：清空改到 Present 之后每帧一次，
+				// 否则后一条 384 draw 会把前一条（Lense）的结果清掉
 				ID3D11RenderTargetView* maskList[1] = { s_maskRTV };
 				a_ctx->OMSetRenderTargets(1, maskList, nullptr);
 				a_ctx->PSSetShader(s_psMask, nullptr, 0);
@@ -2420,6 +2420,15 @@ float4 main(float4 pos : SV_POSITION) : SV_Target {
 		// 3D 接管那套因为"索引数无法唯一标识几何体"而误伤天空，已停用。
 		// r170: M1 调试视图也要能单独打开（不依赖旧 overlay 开关）
 		if (g_screenOverlay || g_maskDebug) OverlayDraw(a_sc);
+
+		// r171: overlay 采样完之后清 mask，为下一帧的 Lense 绘制做准备
+		if (g_maskEnabled && s_maskRTV) {
+			auto* rdM = RE::BSGraphics::RendererData::GetSingleton();
+			if (rdM && rdM->context) {
+				const float clearM[4] = { 0.0f, 0.0f, 0.0f, 0.0f };
+				((ID3D11DeviceContext*)static_cast<void*>(rdM->context))->ClearRenderTargetView(s_maskRTV, clearM);
+			}
+		}
 		return s_origPresent(a_sc, a_sync, a_flags);
 	}
 
