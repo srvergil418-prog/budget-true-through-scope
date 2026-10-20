@@ -165,8 +165,6 @@ namespace RC
 					ImGui::Separator();
 					ImGui::Checkbox("show reticle", &g_screenOverlay);
 					ImGui::Checkbox("red cross (simple style)", &g_redCross);
-					ImGui::Checkbox("show scope's own reticle", &g_showScopeReticle);
-					ImGui::TextDisabled("  (the one glued to the scope, wobbles with weapon)");
 					ImGui::Spacing();
 					ImGui::Text("Detected scope: %s", g_scopeProfileName);
 					ImGui::TextDisabled("K98k = Lense:0 (384 idx, subset 192)");
@@ -219,6 +217,10 @@ namespace RC
 
 				// ======================= Tab: Debug =======================
 				if (ImGui::BeginTabItem("Debug")) {
+					ImGui::Text("STS original reticle");
+					ImGui::Checkbox("show STS's original 3D reticle", &g_showScopeReticle);
+					ImGui::TextDisabled("  the one glued to the scope, follows the model");
+					ImGui::Checkbox("mask view", &g_maskDebug);
 					ImGui::Text("Mask view");
 					ImGui::Checkbox("mask debug view (red=mask green=reticle)", &g_maskDebug);
 					ImGui::Separator();
