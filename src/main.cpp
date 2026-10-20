@@ -1341,14 +1341,36 @@ float4 main(float4 pos : SV_POSITION) : SV_Target {
 				a_ctx->RSGetViewports(&vpN2, &vp2);
 				isMainColorPass = hasColorRTV && vp2.Width >= 1280.0f && vp2.Height >= 720.0f
 					&& vp2.Width <= 4096.0f && vp2.Height <= 4096.0f;
+
+				// r225: RTV 身份锁定 —— 同一个几何还有别的带 RTV 的 pass（不只是阴影）。
+				// 第一次见到"看起来像主 pass"的 RTV 就记住它，之后只认这一个。
+				// 这样即使有第二个带 RTV 的 pass，也不会再往 mask 里画第二份。
+				static ID3D11RenderTargetView* s_mainRTV = nullptr;
+				if (isMainColorPass) {
+					if (!s_mainRTV) {
+						s_mainRTV = curRTV[0];
+						s_mainRTV->AddRef();
+						Log("[MASK] learned main RTV = %p (vp=%.0fx%.0f), will only accept this one",
+							(void*)s_mainRTV, vp2.Width, vp2.Height);
+					} else if (curRTV[0] != s_mainRTV) {
+						static int s_rtvMismatchLog = 0;
+						if (s_rtvMismatchLog < 10) {
+							++s_rtvMismatchLog;
+							Log("[MASK-SKIP] rtv mismatch: got %p want %p (vp=%.0fx%.0f)",
+								(void*)curRTV[0], (void*)s_mainRTV, vp2.Width, vp2.Height);
+						}
+						isMainColorPass = false;
+					}
+				}
+
 				for (int i = 0; i < 8; ++i) if (curRTV[i]) curRTV[i]->Release();
 				if (curDSV) curDSV->Release();
 				if (!isMainColorPass) {
 					static int s_passSkipLog = 0;
 					if (s_passSkipLog < 10) {
 						++s_passSkipLog;
-						Log("[MASK-SKIP] not main color pass: rtv=%p vp=(%.0f,%.0f %.0fx%.0f) voff=%u",
-							(void*)curRTV[0], vp2.TopLeftX, vp2.TopLeftY, vp2.Width, vp2.Height, 0u);
+						Log("[MASK-SKIP] not main color pass: rtv=%p vp=(%.0f,%.0f %.0fx%.0f)",
+							(void*)curRTV[0], vp2.TopLeftX, vp2.TopLeftY, vp2.Width, vp2.Height);
 					}
 				}
 			}
@@ -3100,7 +3122,7 @@ float4 main(float4 pos : SV_POSITION) : SV_Target {
 	static void InstallHooks()
 	{
 		const auto mh = MH_Initialize();
-		Log("[BUILD] BudgetThroughScope r224 (mask-rb-points) %s %s", __DATE__, __TIME__);
+		Log("[BUILD] BudgetThroughScope r225 (rtv-lock) %s %s", __DATE__, __TIME__);
 		Log("[INIT] MH_Initialize = %d", (int)mh);
 		CreateDirectoryW(L"E:\\Custom Fallout4\\shots", nullptr);
 
