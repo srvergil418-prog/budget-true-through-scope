@@ -3046,10 +3046,24 @@ float4 main(float4 pos : SV_POSITION) : SV_Target {
 					cR->CopyResource(s_maskStaging, s_maskTex);
 					D3D11_MAPPED_SUBRESOURCE mr{};
 					if (SUCCEEDED(cR->Map(s_maskStaging, 0, D3D11_MAP_READ, 0, &mr))) {
-						const uint8_t* row = (const uint8_t*)mr.pData + (size_t)540 * mr.RowPitch;
-						const uint8_t vCenter = row[960];          // mask 中心
-						const uint8_t vCorner = *(const uint8_t*)mr.pData;  // 左上角
-						Log("[MASK-RB] center=%u corner=%u | maskWrites=%d dwSkip=%d", vCenter, vCorner, s_maskWrites.load(), s_dwSkipped.load());
+						// r224: 多点采样 —— 之前只看中心和左上角，漏掉了"左侧有内容"的情况
+						auto px = [&](UINT x, UINT y) -> unsigned {
+							const uint8_t* r2 = (const uint8_t*)mr.pData + (size_t)y * mr.RowPitch;
+							return (unsigned)r2[x];
+						};
+						// 统计整张 mask 的非零像素数（步长 8，足够快）
+						unsigned nz = 0;
+						for (UINT y = 0; y < 1080; y += 8) {
+							const uint8_t* r2 = (const uint8_t*)mr.pData + (size_t)y * mr.RowPitch;
+							for (UINT x = 0; x < 1920; x += 8) {
+								if (r2[x]) ++nz;
+							}
+						}
+						Log("[MASK-RB] center=%u | TL=%u TR=%u BL=%u BR=%u | L=%u R=%u T=%u B=%u | nonzero=%u | writes=%d dwSkip=%d",
+							px(960, 540),
+							px(0, 0), px(1919, 0), px(0, 1079), px(1919, 1079),
+							px(300, 540), px(1600, 540), px(960, 200), px(960, 880),
+							nz, s_maskWrites.load(), s_dwSkipped.load());
 						cR->Unmap(s_maskStaging, 0);
 					}
 				}
@@ -3086,7 +3100,7 @@ float4 main(float4 pos : SV_POSITION) : SV_Target {
 	static void InstallHooks()
 	{
 		const auto mh = MH_Initialize();
-		Log("[BUILD] BudgetThroughScope r223 (scissor-reset) %s %s", __DATE__, __TIME__);
+		Log("[BUILD] BudgetThroughScope r224 (mask-rb-points) %s %s", __DATE__, __TIME__);
 		Log("[INIT] MH_Initialize = %d", (int)mh);
 		CreateDirectoryW(L"E:\\Custom Fallout4\\shots", nullptr);
 
