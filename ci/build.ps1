@@ -43,11 +43,23 @@ $clf4 = Join-Path $root 'CommonLibF4'
 if (Test-Path (Join-Path $clf4 '.git')) {
     Push-Location $clf4
     try {
+        # r209 (GPT 行动项 1): 先把实际 checkout 的仓库身份打出来，再谈修什么。
+        # 步骤名只写 "powerof3 master"，显示名不能证明仓库身份。
+        $depUrl = (git remote get-url origin 2>&1 | Out-String).Trim()
+        $depSha = (git rev-parse HEAD 2>&1 | Out-String).Trim()
+        $depBr  = (git rev-parse --abbrev-ref HEAD 2>&1 | Out-String).Trim()
+        Write-Host "  [DEP] CommonLibF4 url=$depUrl branch=$depBr sha=$depSha" -ForegroundColor Cyan
+        $hdr1 = Join-Path $clf4 'CommonLibF4/include/RE/B/BSLightingShaderMaterialBase.h'
+        $hdr2 = Join-Path $clf4 'include/RE/B/BSLightingShaderMaterialBase.h'
+        Write-Host "  [DEP] BSLightingShaderMaterialBase.h @CommonLibF4/include = $(Test-Path $hdr1)" -ForegroundColor Cyan
+        Write-Host "  [DEP] BSLightingShaderMaterialBase.h @include           = $(Test-Path $hdr2)" -ForegroundColor Cyan
+        Write-Host "  [DEP] has CMakeLists.txt @root = $(Test-Path (Join-Path $clf4 'CMakeLists.txt'))" -ForegroundColor Cyan
+        Write-Host "  [DEP] has xmake.lua      @root = $(Test-Path (Join-Path $clf4 'xmake.lua'))" -ForegroundColor Cyan
+
         git fetch --depth=1 origin dev-1.10.163 2>&1 | Out-Null
         if ($LASTEXITCODE -ne 0) {
-            # r208: 换成 libxse/CommonLibF4 后没有 dev-1.10.163 分支。
-            # 官方仓库本身就是 1.10.163 的布局，不需要 powerof3 那套 overlay。
-            Write-Host '  [0/4] dev-1.10.163 not present (libxse repo) - skipping overlay' -ForegroundColor Yellow
+            # 换成没有 dev-1.10.163 分支的仓库时跳过 overlay，不要中止构建。
+            Write-Host '  [0/4] dev-1.10.163 not present in this repo - skipping overlay' -ForegroundColor Yellow
         } else {
             git checkout --force FETCH_HEAD -- CommonLibF4 2>&1 | Out-Null
             if ($LASTEXITCODE -ne 0) { throw 'git checkout dev CommonLibF4 failed' }
