@@ -2652,6 +2652,16 @@ float4 main(float4 pos : SV_POSITION) : SV_Target {
 							DumpSubtreeRec(sn2, 0, shapes);
 							Log("[SUB] === total drawable shapes = %d ===", shapes);
 						}
+					} else {
+						// r221: 没有 ScopeNormal —— 机械瞄具 / 空手 / 非 STS 武器。
+						// 必须清空 profile：否则 g_scopeValid 会沿用上一把枪的值，
+						// 结果机瞄也画屏幕准星（用户报告的泄漏）。
+						if (strcmp(s_scopeProfile.name, "unknown") != 0) {
+							Log("[PROFILE-CHANGE] old=%s new=unknown (no ScopeNormal)", s_scopeProfile.name);
+							s_scopeProfile = ScopeProfile{};
+							SyncProfileName();
+							ResetLenseIdentity();
+						}
 					}
 					if (auto* normalNode = FindNode(a_pc, "ScopeNormal")) {
 						if (auto* nn = normalNode->IsNode()) {
@@ -3029,7 +3039,7 @@ float4 main(float4 pos : SV_POSITION) : SV_Target {
 	static void InstallHooks()
 	{
 		const auto mh = MH_Initialize();
-		Log("[BUILD] BudgetThroughScope r220 (prop-probe) %s %s", __DATE__, __TIME__);
+		Log("[BUILD] BudgetThroughScope r221 (leak-fix) %s %s", __DATE__, __TIME__);
 		Log("[INIT] MH_Initialize = %d", (int)mh);
 		CreateDirectoryW(L"E:\\Custom Fallout4\\shots", nullptr);
 
