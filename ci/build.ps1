@@ -25,6 +25,7 @@ if (-not (Test-Path $commonlibf4)) { throw "CommonLibF4 not found at $commonlibf
 $utf8NoBom = New-Object System.Text.UTF8Encoding($false)
 function Write-NoBom([string]$path, [string]$text) { [System.IO.File]::WriteAllText($path, $text, $utf8NoBom) }
 
+# r210: libxse 用 CMake shim 编译，下面是 powerof3 专用 overlay（自动跳过）
 # ================================================================ 0) 把 ImageSpaceEffect.h 换成 dev-1.10.163 的版本
 #
 # master 的很多头文件里是
