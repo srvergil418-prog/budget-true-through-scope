@@ -2084,6 +2084,11 @@ float4 main(float4 pos : SV_POSITION) : SV_Target {
 			if (ads) s_frame++;
 
 			if (ads) {
+				// r179: 只在「刚进入 ADS」时建立一次原始状态快照。
+				// 关键修复：原来 s_cullRec.clear() 写在每帧路径里，
+				// 导致 orig 记录到的是我们上一帧改过的值，退出时恢复失真。
+				if (!s_lastADS) s_cullRec.clear();
+
 				// 每帧算镜片投影（诊断用）
 				UpdateMask(a_pc);
 
@@ -2117,7 +2122,7 @@ float4 main(float4 pos : SV_POSITION) : SV_Target {
 					}
 				};
 				if (g_forceLense) {
-					s_cullRec.clear();
+					// r179: 不再每帧 clear（快照在进入 ADS 时已建立，SetCullRecorded 内部去重）
 					// 1) uncull Lense 及其祖先链（记录原始状态）
 					if (auto* n = FindNode(a_pc, "Lense")) {
 						SetCullRecorded(n, false);
@@ -2541,6 +2546,7 @@ float4 main(float4 pos : SV_POSITION) : SV_Target {
 	static void InstallHooks()
 	{
 		const auto mh = MH_Initialize();
+		Log("[BUILD] BudgetThroughScope r179 (cull-snapshot-fix) %s %s", __DATE__, __TIME__);
 		Log("[INIT] MH_Initialize = %d", (int)mh);
 		CreateDirectoryW(L"E:\\Custom Fallout4\\shots", nullptr);
 
