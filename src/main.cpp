@@ -1325,6 +1325,35 @@ float4 main(float4 pos : SV_POSITION) : SV_Target {
 		// 保留原始材质绘制，再追加一次 B 组绘制写进 R8 mask
 		if (g_maskEnabled && g_ads.load() && s_scopeProfile.targetIndexCount > 0
 			&& a_count == s_scopeProfile.targetIndexCount && a_start == 0 && s_maskRTV && s_psMask) {
+			// r222: 目标几何会在多个 pass 里被绘制（主颜色 + 阴影）。
+			// 日志实测：同一 VB/voff 先出现在 vp=1920x1080 rtv0=有效，
+			// 之后又在 vp=3501x2691 rtv0=NULL（阴影 pass）出现。
+			// 阴影 pass 里强行绑我们的 mask RTV → 坐标完全错位 → 草地里出现"遮罩"。
+			// 判据：必须有颜色 RTV，且 viewport 覆盖主画面尺寸。
+			bool isMainColorPass = false;
+			{
+				ID3D11RenderTargetView* curRTV[8] = {};
+				ID3D11DepthStencilView* curDSV = nullptr;
+				a_ctx->OMGetRenderTargets(8, curRTV, &curDSV);
+				const bool hasColorRTV = (curRTV[0] != nullptr);
+				UINT vpN2 = 1;
+				D3D11_VIEWPORT vp2{};
+				a_ctx->RSGetViewports(&vpN2, &vp2);
+				isMainColorPass = hasColorRTV && vp2.Width >= 1280.0f && vp2.Height >= 720.0f
+					&& vp2.Width <= 4096.0f && vp2.Height <= 4096.0f;
+				for (int i = 0; i < 8; ++i) if (curRTV[i]) curRTV[i]->Release();
+				if (curDSV) curDSV->Release();
+				if (!isMainColorPass) {
+					static int s_passSkipLog = 0;
+					if (s_passSkipLog < 10) {
+						++s_passSkipLog;
+						Log("[MASK-SKIP] not main color pass: rtv=%p vp=(%.0f,%.0f %.0fx%.0f) voff=%u",
+							(void*)curRTV[0], vp2.TopLeftX, vp2.TopLeftY, vp2.Width, vp2.Height, 0u);
+					}
+				}
+			}
+
+			if (isMainColorPass) {
 			ID3D11PixelShader* psM = nullptr;
 			a_ctx->PSGetShader(&psM, nullptr, nullptr);
 			const bool colorM = (psM != nullptr);
@@ -1470,6 +1499,7 @@ float4 main(float4 pos : SV_POSITION) : SV_Target {
 				return;
 			}
 			if (vbM) vbM->Release();       // r182: 未命中 color 条件时也要释放
+			}   // r222: if (isMainColorPass)
 		}
 
 		// ======================= r166: 深度预 pass 不写深度（验证深度因果） =======================
@@ -3039,7 +3069,7 @@ float4 main(float4 pos : SV_POSITION) : SV_Target {
 	static void InstallHooks()
 	{
 		const auto mh = MH_Initialize();
-		Log("[BUILD] BudgetThroughScope r221 (leak-fix) %s %s", __DATE__, __TIME__);
+		Log("[BUILD] BudgetThroughScope r222 (main-pass-only) %s %s", __DATE__, __TIME__);
 		Log("[INIT] MH_Initialize = %d", (int)mh);
 		CreateDirectoryW(L"E:\\Custom Fallout4\\shots", nullptr);
 
