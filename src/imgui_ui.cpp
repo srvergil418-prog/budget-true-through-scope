@@ -24,7 +24,7 @@ namespace RC
 	float g_lensOffX = 0.0f;
 	float g_lensOffY = 0.0f;
 	float g_lensOffZ = 10.0f;
-	bool  g_lensEnabled = true;
+	bool  g_lensEnabled = false;   // r190: 默认关（旧的 3D 圆盘方案已被 mask 取代）
 	bool  g_sup144 = false;
 	bool  g_sup384A = false;
 	bool  g_sup384B = false;
