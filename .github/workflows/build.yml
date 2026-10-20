@@ -30,18 +30,18 @@ jobs:
       - name: Checkout plugins sources
         uses: actions/checkout@v4
 
-      - name: Checkout CommonLibF4 (powerof3 master)
-        # 用 master：dev-1.10.163 分支缺 F4SE::PluginVersionData，插件入口编不出来。
-        # master 的 REL::ID 问题由 ci/build.ps1 里「换掉 ImageSpaceEffect.h」那一步处理。
-        # 注意：libxse/CommonLibF4 只有 xmake.lua，没有 CMakeLists.txt，
-        # 不能给 add_subdirectory 用；读取材质贴图所需的头文件改用离线方案。
+      - name: Checkout CommonLibF4 (libxse, official)
+        # r210: 换成 libxse 官方仓库 —— 它有 BSLightingShaderMaterialBase.h，
+        # 可以运行时读瞄具准星的 DDS 路径。
+        # 它只有 xmake.lua 没有 CMakeLists.txt，由 CMakeLists.txt 里的 shim 直接编译 src/*.cpp。
         uses: actions/checkout@v4
         with:
-          repository: powerof3/CommonLibF4
-          ref: master
+          repository: libxse/commonlibf4
+          ref: main
           path: CommonLibF4
           fetch-depth: 0
           clean: false
+          submodules: recursive
 
       - name: Checkout ImGui (docking, for the in-game tuning menu)
         uses: actions/checkout@v4
