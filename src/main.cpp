@@ -423,6 +423,7 @@ namespace RC
 	// 另一条同名 384 Draw 的索引引用范围更大（实测最大 113）。
 	static bool s_lenseIdentified = false;
 	static ID3D11Buffer* s_lenseVB = nullptr;      // 持有独立 COM 引用
+	static int s_idTries = 0;                     // r200: 识别尝试计数（profile 切换时重置）
 	static UINT s_lenseVoff = 0;
 	static UINT s_lenseStride = 0;
 	static const void* s_lenseIbAddr = nullptr;
@@ -1370,11 +1371,11 @@ float4 main(float4 pos : SV_POSITION) : SV_Target {
 				static int s_maskLog = 0;
 				++s_maskWrites;
 
-				// r181: 严格识别 Lense —— 读这条 draw 的索引内容，判断最大顶点索引。
-				// Lense:0 只引用 0..81；另一条 384 Draw 引用到 113。
-				// 识别成功后不再读（避免进入热路径）。
-				if (!s_lenseIdentified) {
-					static int s_idTries = 0;
+				// r200: 严格识别按 profile 分流 —— K98k 专用（maxIdx<=81），ATACR 是白名单不需要。
+				// 之前没做分流，ATACR 的 rear_glass（64 顶点，maxIdx=63）也满足 <=81，
+				// 于是把 ATACR 的 voff 当成 K98k 的 Lense，切回 K98k 后目镜黑。
+				const bool k98kProfile = (strcmp(s_scopeProfile.name, "K98k") == 0);
+				if (!s_lenseIdentified && k98kProfile && a_count == s_scopeProfile.targetIndexCount) {
 					if (s_idTries < 600) {
 						++s_idTries;
 						ID3D11Buffer* ibI = nullptr;
@@ -2222,6 +2223,21 @@ float4 main(float4 pos : SV_POSITION) : SV_Target {
 		return nullptr;
 	}
 
+	// r200: 清空 Lense 识别身份（profile 切换时调用）。
+	// 必须先 Release 旧 COM 引用，再置空 —— 否则泄漏。
+	static void ResetLenseIdentity()
+	{
+		if (s_lenseVB) { s_lenseVB->Release(); s_lenseVB = nullptr; }
+		s_lenseIdentified = false;
+		s_lenseVoff = 0;
+		s_lenseMaxIdx = 0;
+		s_lenseStride = 0;
+		s_lenseIbAddr = nullptr;
+		s_lenseIOff = 0;
+		s_lenseIFmt = 0;
+		s_idTries = 0;
+	}
+
 	// 根据 ScopeNormal 子树判定当前瞄具属于哪个已验证家族
 	static void IdentifyScopeProfile(RE::NiAVObject* a_scopeNormal)
 	{
@@ -2498,6 +2514,16 @@ float4 main(float4 pos : SV_POSITION) : SV_Target {
 					if (auto* sn2 = FindNode(a_pc, "ScopeNormal")) {
 						// r191: 判定当前瞄具属于哪个已验证家族（白名单）
 						IdentifyScopeProfile(sn2);
+						// r200: profile 真正变化时重置旧身份（A+B 方案的 B）
+						{
+							static std::string s_prevProfile;
+							if (s_prevProfile != s_scopeProfile.name) {
+								Log("[PROFILE-CHANGE] old=%s new=%s reset=1",
+									s_prevProfile.c_str(), s_scopeProfile.name);
+								s_prevProfile = s_scopeProfile.name;
+								ResetLenseIdentity();
+							}
+						}
 
 						// r184: 只要瞄具节点变了就重新 dump，不再限制总次数
 						// （换武器/换瞄具后 ScopeNormal 指针会变，这样每个瞄具都能拿到自己的结构）
@@ -2917,7 +2943,7 @@ float4 main(float4 pos : SV_POSITION) : SV_Target {
 	static void InstallHooks()
 	{
 		const auto mh = MH_Initialize();
-		Log("[BUILD] BudgetThroughScope r199 (expected-stride) %s %s", __DATE__, __TIME__);
+		Log("[BUILD] BudgetThroughScope r200 (profile-isolation) %s %s", __DATE__, __TIME__);
 		Log("[INIT] MH_Initialize = %d", (int)mh);
 		CreateDirectoryW(L"E:\\Custom Fallout4\\shots", nullptr);
 
