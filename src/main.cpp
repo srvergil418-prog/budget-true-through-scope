@@ -2301,11 +2301,19 @@ float4 main(float4 pos : SV_POSITION) : SV_Target {
 				if (!s_lastADS) {
 					// P0：递归枚举整个 ScopeNormal 子树（确认是否漏了 shape）
 					if (auto* sn2 = FindNode(a_pc, "ScopeNormal")) {
-						static int s_subLog = 0;
-						if (s_subLog < 2) {
-							s_subLog++;
+						// r184: 只要瞄具节点变了就重新 dump，不再限制总次数
+						// （换武器/换瞄具后 ScopeNormal 指针会变，这样每个瞄具都能拿到自己的结构）
+						static RE::NiAVObject* s_lastScopeNormal = nullptr;
+						static std::string s_lastWeaponName;
+						std::string wname;
+						if (auto* w3d = a_pc->Get3D()) {
+							if (auto* w = w3d->GetObjectByName("Weapon")) wname = w->name.c_str();
+						}
+						if (sn2 != s_lastScopeNormal || wname != s_lastWeaponName) {
+							s_lastScopeNormal = sn2;
+							s_lastWeaponName = wname;
 							int shapes = 0;
-							Log("[SUB] === ScopeNormal subtree ===");
+							Log("[SUB] === ScopeNormal subtree (weapon=%s) ===", wname.c_str());
 							DumpSubtreeRec(sn2, 0, shapes);
 							Log("[SUB] === total drawable shapes = %d ===", shapes);
 						}
@@ -2664,7 +2672,7 @@ float4 main(float4 pos : SV_POSITION) : SV_Target {
 	static void InstallHooks()
 	{
 		const auto mh = MH_Initialize();
-		Log("[BUILD] BudgetThroughScope r183 (strict-log) %s %s", __DATE__, __TIME__);
+		Log("[BUILD] BudgetThroughScope r184 (sub-dump-per-scope) %s %s", __DATE__, __TIME__);
 		Log("[INIT] MH_Initialize = %d", (int)mh);
 		CreateDirectoryW(L"E:\\Custom Fallout4\\shots", nullptr);
 
