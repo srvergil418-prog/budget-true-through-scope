@@ -40,6 +40,7 @@ namespace RC
 	bool  g_maskDebug = false;
 	bool  g_redCross = false;
 	bool  g_strictDW = false;
+	bool  g_bttsEnabled = false;
 	int   g_crossTarget = 0;
 	float g_crossOffX = 0.0f;
 	float g_crossOffY = 0.0f;
@@ -138,73 +139,119 @@ namespace RC
 		};
 
 		if (s_menu) {
-			ImGui::SetNextWindowSize(ImVec2(430, 400), ImGuiCond_FirstUseEver);
-			ImGui::Begin("ReticleCenter (F7)", &s_menu);
+			ImGui::SetNextWindowSize(ImVec2(460, 520), ImGuiCond_FirstUseEver);
+			ImGui::Begin("Budget Through Scope (F7)", &s_menu);
 
-			ImGui::Text("Reticle (screen space)");
-			Row("offset X", &g_reticleOffX, 0.0f, 1.0f, -2000.0f, 2000.0f);
-			Row("offset Y", &g_reticleOffY, 0.0f, 1.0f, -2000.0f, 2000.0f);
-			Row("size", &g_reticleSize, 500.0f, 10.0f, 50.0f, 3000.0f);
-			Row("scale", &g_reticleScale, 1.0f, 0.05f, 0.05f, 5.0f);
-
-			ImGui::Separator();
-			ImGui::Text("Mask circle");
-			ImGui::Checkbox("auto (lens direction)", &g_maskAuto);
-			Row("mask X", &g_maskOffX, 0.0f, 1.0f, -2000.0f, 2000.0f);
-			Row("mask Y", &g_maskOffY, 0.0f, 1.0f, -2000.0f, 2000.0f);
-			Row("radius", &g_maskRadius, 324.0f, 5.0f, 10.0f, 2000.0f);
-			Row("radius x (auto)", &g_maskRadiusScale, 1.0f, 0.05f, 0.1f, 5.0f);
-
-			ImGui::Separator();
-			ImGui::Text("Debug: skip draws (persistent)");
-			// 四个 FORCE 开关互斥：勾一个自动取消其他三个
-			if (ImGui::Checkbox("FORCE Lense:0 visible", &g_forceLense) && g_forceLense) {
-				g_forcePoly = g_forceMount1 = g_forceMount2 = false;
+			// ======================= BTTS 主开关 =======================
+			if (ImGui::CollapsingHeader("BTTS", ImGuiTreeNodeFlags_DefaultOpen)) {
+				if (ImGui::Checkbox("Enable BTTS", &g_bttsEnabled)) {
+					// 一键设置所有必要项
+					g_forceLense = g_bttsEnabled;
+					g_maskEnabled = g_bttsEnabled;
+					g_maskUse = g_bttsEnabled;
+					g_skipDepthWrite = g_bttsEnabled;
+					g_screenOverlay = g_bttsEnabled;
+					g_strictDW = g_bttsEnabled;
+					Log("[UI] BTTS %s (forceLense=%d mask=%d clip=%d depth=%d strict=%d)",
+						g_bttsEnabled ? "ON" : "OFF", g_forceLense, g_maskEnabled, g_maskUse, g_skipDepthWrite, g_strictDW);
+				}
+				ImGui::TextDisabled("one switch sets: lens / mask / clip / depth / strict");
+				ImGui::Separator();
+				ImGui::Checkbox("show reticle", &g_screenOverlay);
+				ImGui::Checkbox("red cross (debug style)", &g_redCross);
 			}
-			if (ImGui::Checkbox("FORCE polySurface22 visible", &g_forcePoly) && g_forcePoly) {
-				g_forceLense = g_forceMount1 = g_forceMount2 = false;
-			}
-			if (ImGui::Checkbox("FORCE Mount1 visible", &g_forceMount1) && g_forceMount1) {
-				g_forceLense = g_forcePoly = g_forceMount2 = false;
-			}
-			if (ImGui::Checkbox("FORCE Mount2 visible", &g_forceMount2) && g_forceMount2) {
-				g_forceLense = g_forcePoly = g_forceMount1 = false;
-			}
-			ImGui::Checkbox("skip LENSE (both 384)", &g_supLense);
-			ImGui::Checkbox("DIAG red/green split (B=red A=green)", &g_diagSplit);
-			if (ImGui::Checkbox("DIAG B-only (red)", &g_diagBOnly) && g_diagBOnly) g_diagAOnly = false;
-			if (ImGui::Checkbox("DIAG A-only (green)", &g_diagAOnly) && g_diagAOnly) g_diagBOnly = false;
-			ImGui::Checkbox("DIAG CROSS (B-geo + screen center)", &g_diagCross);
-			ImGui::Checkbox("screen overlay reticle (old)", &g_screenOverlay);
-			ImGui::Checkbox("SKIP DEPTH WRITE (r166 test)", &g_skipDepthWrite);
-			ImGui::Checkbox("MASK write (r169 two-stage)", &g_maskEnabled);
-			ImGui::Checkbox("MASK clip reticle (M3)", &g_maskUse);
-			ImGui::Checkbox("MASK debug view (M1: red=mask green=reticle)", &g_maskDebug);
-			ImGui::Checkbox("RED CROSS (overlay, clipped by mask)", &g_redCross);
-			ImGui::Checkbox("STRICT depth identity (diag)", &g_strictDW);
-			ImGui::Combo("cross target", &g_crossTarget, "both\0only voffA\0only voffB\0none\0A-cross+B-skip\0B-cross+A-skip\0");
-			ImGui::SliderFloat("cross offX", &g_crossOffX, -400.0f, 400.0f, "%.0f");
-			ImGui::SliderFloat("cross offY", &g_crossOffY, -400.0f, 400.0f, "%.0f");
-			ImGui::Checkbox("skip 144 (ScopeFade)", &g_sup144);
-			ImGui::Checkbox("skip 384 A (low voff)", &g_sup384A);
-			ImGui::Checkbox("skip 384 B (high voff)", &g_sup384B);
-			ImGui::Checkbox("skip NIF (96/stride24)", &g_supNif);
-			if (ImGui::Button("save screenshot")) g_wantShot = true;
 
-			ImGui::Separator();
-			ImGui::Text("Camera FOV");
-			Row("fov (0 = game default)", &g_fovOverride, 0.0f, 1.0f, 0.0f, 150.0f);
+			// ======================= 准星 =======================
+			if (ImGui::CollapsingHeader("Reticle", ImGuiTreeNodeFlags_DefaultOpen)) {
+				Row("offset X", &g_reticleOffX, 0.0f, 1.0f, -2000.0f, 2000.0f);
+				Row("offset Y", &g_reticleOffY, 0.0f, 1.0f, -2000.0f, 2000.0f);
+				Row("size", &g_reticleSize, 500.0f, 10.0f, 50.0f, 3000.0f);
+				Row("scale", &g_reticleScale, 1.0f, 0.05f, 0.05f, 5.0f);
+			}
 
-			ImGui::Separator();
-			ImGui::Text("Lens nif (B)");
-			ImGui::Checkbox("spawn lens", &g_lensEnabled);
-			Row("lens X", &g_lensOffX, 0.0f, 0.5f, -100.0f, 100.0f);
-			Row("lens Y", &g_lensOffY, 0.0f, 0.5f, -100.0f, 100.0f);
-			Row("lens Z", &g_lensOffZ, 10.0f, 0.5f, -100.0f, 100.0f);
+			// ======================= 目镜 mask =======================
+			if (ImGui::CollapsingHeader("Scope mask", ImGuiTreeNodeFlags_DefaultOpen)) {
+				ImGui::Checkbox("write mask (B-group geometry)", &g_maskEnabled);
+				ImGui::Checkbox("clip reticle to mask", &g_maskUse);
+				ImGui::Separator();
+				ImGui::Checkbox("auto (from lens direction)", &g_maskAuto);
+				Row("mask X", &g_maskOffX, 0.0f, 1.0f, -2000.0f, 2000.0f);
+				Row("mask Y", &g_maskOffY, 0.0f, 1.0f, -2000.0f, 2000.0f);
+				Row("radius", &g_maskRadius, 324.0f, 5.0f, 10.0f, 2000.0f);
+				Row("radius x (auto)", &g_maskRadiusScale, 1.0f, 0.05f, 0.1f, 5.0f);
+				ImGui::TextDisabled("red ring = mask border (screen-space circle)");
+			}
 
-			ImGui::Separator();
-			ImGui::Text("auto raw: (%.0f, %.0f) r=%.0f", g_maskCX, g_maskCY, g_maskR);
-			ImGui::TextDisabled("red ring = mask border");
+			// ======================= 深度 / 透视 =======================
+			if (ImGui::CollapsingHeader("Depth & transparency", ImGuiTreeNodeFlags_DefaultOpen)) {
+				ImGui::Checkbox("make scope transparent", &g_skipDepthWrite);
+				ImGui::TextDisabled("skips depth write so scene shows through the lens");
+				ImGui::Separator();
+				ImGui::Checkbox("strict lens identity", &g_strictDW);
+				ImGui::TextDisabled(g_strictDW
+					? "strict ON : skip only the identified lens depth"
+					: "strict OFF: skip ALL 384 depth passes (loose)");
+			}
+
+			// ======================= 镜片节点可见性 =======================
+			if (ImGui::CollapsingHeader("Scope nodes")) {
+				if (ImGui::Checkbox("force lens visible", &g_forceLense) && g_forceLense) {
+					g_forcePoly = g_forceMount1 = g_forceMount2 = false;
+				}
+				if (ImGui::Checkbox("force polySurface22", &g_forcePoly) && g_forcePoly) {
+					g_forceLense = g_forceMount1 = g_forceMount2 = false;
+				}
+				if (ImGui::Checkbox("force Mount1", &g_forceMount1) && g_forceMount1) {
+					g_forceLense = g_forcePoly = g_forceMount2 = false;
+				}
+				if (ImGui::Checkbox("force Mount2", &g_forceMount2) && g_forceMount2) {
+					g_forceLense = g_forcePoly = g_forceMount1 = false;
+				}
+				ImGui::TextDisabled("debug: show one scope part in isolation");
+			}
+
+			// ======================= 相机 =======================
+			if (ImGui::CollapsingHeader("Camera")) {
+				Row("fov (0 = game default)", &g_fovOverride, 0.0f, 1.0f, 0.0f, 150.0f);
+			}
+
+			// ======================= 自挂镜片 nif =======================
+			if (ImGui::CollapsingHeader("Lens NIF (legacy)")) {
+				ImGui::Checkbox("spawn lens", &g_lensEnabled);
+				Row("lens X", &g_lensOffX, 0.0f, 0.5f, -100.0f, 100.0f);
+				Row("lens Y", &g_lensOffY, 0.0f, 0.5f, -100.0f, 100.0f);
+				Row("lens Z", &g_lensOffZ, 10.0f, 0.5f, -100.0f, 100.0f);
+				ImGui::TextDisabled("old approach: attached disc mesh");
+			}
+
+			// ======================= 诊断（默认收起）=======================
+			if (ImGui::CollapsingHeader("Debug / diagnostics")) {
+				ImGui::Text("Mask");
+				ImGui::Checkbox("mask debug view (red=mask green=reticle)", &g_maskDebug);
+				ImGui::Separator();
+				ImGui::Text("Draw skip overrides");
+				ImGui::Checkbox("skip LENSE (both 384)", &g_supLense);
+				ImGui::Checkbox("skip 144 (ScopeFade)", &g_sup144);
+				ImGui::Checkbox("skip 384 A (low voff)", &g_sup384A);
+				ImGui::Checkbox("skip 384 B (high voff)", &g_sup384B);
+				ImGui::Checkbox("skip NIF (96/stride24)", &g_supNif);
+				ImGui::Separator();
+				ImGui::Text("Red/green split");
+				ImGui::Checkbox("red/green split (B=red A=green)", &g_diagSplit);
+				if (ImGui::Checkbox("B-only (red)", &g_diagBOnly) && g_diagBOnly) g_diagAOnly = false;
+				if (ImGui::Checkbox("A-only (green)", &g_diagAOnly) && g_diagAOnly) g_diagBOnly = false;
+				ImGui::Separator();
+				ImGui::Text("Cross (in-lens, legacy)");
+				ImGui::Checkbox("DIAG CROSS (B-geo + screen center)", &g_diagCross);
+				ImGui::Combo("cross target", &g_crossTarget, "both\0only voffA\0only voffB\0none\0A-cross+B-skip\0B-cross+A-skip\0");
+				ImGui::SliderFloat("cross offX", &g_crossOffX, -400.0f, 400.0f, "%.0f");
+				ImGui::SliderFloat("cross offY", &g_crossOffY, -400.0f, 400.0f, "%.0f");
+				ImGui::Separator();
+				ImGui::Text("Misc");
+				if (ImGui::Button("save screenshot")) g_wantShot = true;
+				ImGui::Text("auto raw: (%.0f, %.0f) r=%.0f", g_maskCX, g_maskCY, g_maskR);
+			}
+
 			ImGui::End();
 		}
 
