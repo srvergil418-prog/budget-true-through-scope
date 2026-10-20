@@ -390,6 +390,10 @@ namespace RC
 	static ID3D11Texture2D* s_maskTex = nullptr;
 	static ID3D11Texture2D* s_maskStaging = nullptr;   // r172: 读回用
 	static std::atomic<int> s_maskWrites{ 0 };   // r173: mask 写入总次数
+	// r178: mask 写入时记录的几何身份（VB 指针 + 顶点偏移），用于限定 SKIP DEPTH 的命中范围
+	static ID3D11Buffer* s_maskVB = nullptr;
+	static UINT s_maskVoff = 0;
+	static std::atomic<int> s_dwSkipped{ 0 };   // r178: 本帧跳过深度写入的次数
 	static ID3D11RenderTargetView* s_maskRTV = nullptr;
 	static ID3D11PixelShader* s_psMask = nullptr;
 	ID3D11ShaderResourceView* g_maskSRV = nullptr;
@@ -1226,6 +1230,9 @@ float4 main(float4 pos : SV_POSITION) : SV_Target {
 
 				static int s_maskLog = 0;
 				++s_maskWrites;
+				// r178: 记录这条几何的身份，供 SKIP DEPTH 限定范围
+				s_maskVB = vbM;
+				s_maskVoff = voffM;
 				if (s_maskLog < 40) {
 					s_maskLog++;
 					Log("[MASK] B-group drawn into mask (voff=%u) total=%d", voffM, (int)s_maskWrites);
@@ -1246,9 +1253,13 @@ float4 main(float4 pos : SV_POSITION) : SV_Target {
 			ID3D11Buffer* vbDW = nullptr;
 			UINT strideDW = 0, voffDW = 0;
 			a_ctx->IAGetVertexBuffers(0, 1, &vbDW, &strideDW, &voffDW);
+
+			// r178: 只对「mask 写入时记录的那条几何」跳过深度，
+			// 避免影响同为本 384 索引的未知几何（GPT P0）。
+			const bool isTargetGeo = (s_maskVB != nullptr && vbDW == s_maskVB && voffDW == s_maskVoff);
 			if (vbDW) vbDW->Release();
 
-			if (isDepthDW && strideDW == 20 && s_dsNoDepthWrite) {
+			if (isDepthDW && strideDW == 20 && isTargetGeo && s_dsNoDepthWrite) {
 				ID3D11DepthStencilState* oldDS = nullptr;
 				UINT oldRef = 0;
 				a_ctx->OMGetDepthStencilState(&oldDS, &oldRef);
@@ -1258,8 +1269,19 @@ float4 main(float4 pos : SV_POSITION) : SV_Target {
 				else { a_ctx->OMSetDepthStencilState(nullptr, oldRef); }
 
 				static int s_dwLog = 0;
-				if (s_dwLog < 4) { s_dwLog++; Log("[DW] depth-write skipped for 384 depth pass (voff=%u)", voffDW); }
+				if (s_dwLog < 6) {
+					s_dwLog++;
+					Log("[DW] depth-write skipped (target geo, voff=%u)", voffDW);
+				}
+				++s_dwSkipped;
 				return;
+			}
+			// 非目标几何：记一次「放行」，证明范围被正确限制
+			static int s_dwPassLog = 0;
+			if (isDepthDW && strideDW == 20 && !isTargetGeo && s_dwPassLog < 6) {
+				s_dwPassLog++;
+				Log("[DW] depth-write LEFT ALONE (other geo, voff=%u maskVB=%p maskVoff=%u)",
+					voffDW, (void*)s_maskVB, s_maskVoff);
 			}
 		}
 
@@ -2065,57 +2087,53 @@ float4 main(float4 pos : SV_POSITION) : SV_Target {
 				// 每帧算镜片投影（诊断用）
 				UpdateMask(a_pc);
 
-				// 停用 ForceLenseVisible：这一坨黑色就是 Lense:0，本该被 STS 剔除。
-				// 强制显示它会让镜筒内部被黑色筒壁挡住，看不到后面。
-				// Lense:0 是一组节点（Lense + polySurface22 + Mount1 + Mount2 同级）。
-				// uncull 父链会把整组都带出来，所以这里做「互斥显示」：
-				// 勾哪个就只显示哪个，其余三个强制隐藏。
-				// r176: FORCE Lense 只 uncull Lense（让 mask 能写入），不再 cull 其他节点。
-				// 原来的「互斥显示」会把镜筒/镜架一起剔除，导致腰射时瞄具消失、只剩目镜。
-				auto UncullOnly = [a_pc](const char* a_target) {
-					auto* n = FindNode(a_pc, a_target);
-					if (!n) return;
-					if (n->GetAppCulled()) n->SetAppCulled(false);
-					// 目标自己的祖先链要 uncull（ScopeNormal 被 STS 剔除时，子节点画不出来）
-					auto* p = n->parent;
-					int guard = 0;
-					while (p && guard++ < 10) {
-						if (p->GetAppCulled()) p->SetAppCulled(false);
-						p = p->parent;
+				// r178: 统一的状态记录 —— 任何我们改过的节点，都先记录原始 AppCulled 再改，
+				// 退出 ADS 时按记录恢复。修复「Lense 未记录导致腰射悬空黑圆盘」。
+				auto SetCullRecorded = [](RE::NiAVObject* a_node, bool a_culled) {
+					if (!a_node) return;
+					const std::string nm = a_node->name.c_str();
+					bool already = false;
+					for (auto& r : s_cullRec) {
+						if (r.name == nm) { already = true; break; }
 					}
+					if (!already) s_cullRec.push_back({ nm, a_node->GetAppCulled() });
+					if (a_node->GetAppCulled() != a_culled) a_node->SetAppCulled(a_culled);
 				};
 				// 诊断用的「互斥显示」：只在显式选择 polySurface/Mount 时使用
-				auto ShowOnly = [a_pc](const char* a_target) {
+				auto ShowOnly = [a_pc, &SetCullRecorded](const char* a_target) {
 					auto* n = FindNode(a_pc, a_target);
 					if (!n) return;
-					if (n->GetAppCulled()) n->SetAppCulled(false);
+					SetCullRecorded(n, false);
 					auto* p = n->parent;
 					int guard = 0;
 					while (p && guard++ < 10) {
-						if (p->GetAppCulled()) p->SetAppCulled(false);
+						SetCullRecorded(p, false);
 						p = p->parent;
 					}
 					const char* others[] = { "Lense", "polySurface22", "Mount1", "Mount2" };
 					for (auto* o : others) {
 						if (strcmp(o, a_target) == 0) continue;
-						if (auto* on = FindNode(a_pc, o)) {
-							if (!on->GetAppCulled()) on->SetAppCulled(true);
-						}
+						if (auto* on = FindNode(a_pc, o)) SetCullRecorded(on, true);
 					}
 				};
 				if (g_forceLense) {
-					UncullOnly("Lense");
-					// r177: ADS 时把镜筒/镜架 cull 掉（视野干净），同时记录原始状态，
-					// 退出 ADS 时恢复 —— 否则腰射时瞄具会消失。
 					s_cullRec.clear();
-					const char* others[] = { "polySurface22", "Mount1", "Mount2" };
-					for (auto* o : others) {
-						if (auto* on = FindNode(a_pc, o)) {
-							s_cullRec.push_back({ std::string(o), on->GetAppCulled() });
-							if (!on->GetAppCulled()) on->SetAppCulled(true);
+					// 1) uncull Lense 及其祖先链（记录原始状态）
+					if (auto* n = FindNode(a_pc, "Lense")) {
+						SetCullRecorded(n, false);
+						auto* p = n->parent;
+						int guard = 0;
+						while (p && guard++ < 10) {
+							SetCullRecorded(p, false);
+							p = p->parent;
 						}
 					}
-					Log("[CULL] ADS enter: culled %zu others (recorded orig)", s_cullRec.size());
+					// 2) cull 镜筒/镜架（记录原始状态），让目镜内视野干净
+					const char* others[] = { "polySurface22", "Mount1", "Mount2" };
+					for (auto* o : others) {
+						if (auto* on = FindNode(a_pc, o)) SetCullRecorded(on, true);
+					}
+					Log("[CULL] ADS enter: modified %zu nodes (orig recorded)", s_cullRec.size());
 				}
 				else if (g_forcePoly)    ShowOnly("polySurface22");
 				else if (g_forceMount1)  ShowOnly("Mount1");
@@ -2252,10 +2270,11 @@ float4 main(float4 pos : SV_POSITION) : SV_Target {
 				}
 			} else if (s_lastADS) {
 				g_maskR = 0.0f;
-				// r177: 恢复 ADS 时被我们 cull 的节点（按名字重新查找，避免悬空指针）
-				for (auto& r : s_cullRec) {
-					if (auto* n = FindNode(a_pc, r.name.c_str())) {
-						if (n->GetAppCulled() != r.orig) n->SetAppCulled(r.orig);
+				// r178: 逆序恢复所有被我们改过的节点（后改的先恢复），
+				// 按名字重新查找以避免悬空指针；恢复的是记录的原始值而非固定 false。
+				for (auto it = s_cullRec.rbegin(); it != s_cullRec.rend(); ++it) {
+					if (auto* n = FindNode(a_pc, it->name.c_str())) {
+						if (n->GetAppCulled() != it->orig) n->SetAppCulled(it->orig);
 					}
 				}
 				if (!s_cullRec.empty()) Log("[CULL] ADS exit: restored %zu nodes", s_cullRec.size());
@@ -2485,7 +2504,7 @@ float4 main(float4 pos : SV_POSITION) : SV_Target {
 						const uint8_t* row = (const uint8_t*)mr.pData + (size_t)540 * mr.RowPitch;
 						const uint8_t vCenter = row[960];          // mask 中心
 						const uint8_t vCorner = *(const uint8_t*)mr.pData;  // 左上角
-						Log("[MASK-RB] center=%u corner=%u | maskWrites=%d", vCenter, vCorner, s_maskWrites.load());
+						Log("[MASK-RB] center=%u corner=%u | maskWrites=%d dwSkip=%d", vCenter, vCorner, s_maskWrites.load(), s_dwSkipped.load());
 						cR->Unmap(s_maskStaging, 0);
 					}
 				}
