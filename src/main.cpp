@@ -1427,6 +1427,22 @@ float4 main(float4 pos : SV_POSITION) : SV_Target {
 				D3D11_VIEWPORT maskVP{ 0.0f, 0.0f, 1920.0f, 1080.0f, 0.0f, 1.0f };
 				a_ctx->RSSetViewports(1, &maskVP);
 
+				// r223: 同理必须重置 scissor —— 游戏常带着上一 pass 的小裁剪矩形，
+				// 会把我们这次 mask 绘制整个裁掉（实测 maskWrites=3802 但读回全 0）。
+				D3D11_RECT oldScissor[16] = {};
+				UINT scissorN = 16;
+				a_ctx->RSGetScissorRects(&scissorN, oldScissor);
+				D3D11_RECT fullScissor{ 0, 0, 1920, 1080 };
+				a_ctx->RSSetScissorRects(1, &fullScissor);
+				static int s_scissorLog = 0;
+				if (s_scissorLog < 6) {
+					++s_scissorLog;
+					Log("[MASK-SCISSOR] old n=%u first=(%ld,%ld,%ld,%ld) -> set full 1920x1080",
+						scissorN,
+						scissorN > 0 ? oldScissor[0].left : 0L, scissorN > 0 ? oldScissor[0].top : 0L,
+						scissorN > 0 ? oldScissor[0].right : 0L, scissorN > 0 ? oldScissor[0].bottom : 0L);
+				}
+
 				static int s_vpLog = 0;
 				if (s_vpLog < 6) {
 					++s_vpLog;
@@ -1436,8 +1452,9 @@ float4 main(float4 pos : SV_POSITION) : SV_Target {
 
 				s_origDrawIndexed(a_ctx, s_scopeProfile.maskCount, a_start + s_scopeProfile.maskStart, a_base);
 
-				// 恢复 viewport
+				// 恢复 viewport + scissor
 				if (vpN > 0) a_ctx->RSSetViewports(1, &oldVP);
+				if (scissorN > 0) a_ctx->RSSetScissorRects(scissorN, oldScissor);
 
 				// 3) 恢复
 				a_ctx->OMSetRenderTargets(8, oldRTVs, oldDSV);
@@ -3069,7 +3086,7 @@ float4 main(float4 pos : SV_POSITION) : SV_Target {
 	static void InstallHooks()
 	{
 		const auto mh = MH_Initialize();
-		Log("[BUILD] BudgetThroughScope r222 (main-pass-only) %s %s", __DATE__, __TIME__);
+		Log("[BUILD] BudgetThroughScope r223 (scissor-reset) %s %s", __DATE__, __TIME__);
 		Log("[INIT] MH_Initialize = %d", (int)mh);
 		CreateDirectoryW(L"E:\\Custom Fallout4\\shots", nullptr);
 
