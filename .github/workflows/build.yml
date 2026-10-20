@@ -30,13 +30,13 @@ jobs:
       - name: Checkout plugins sources
         uses: actions/checkout@v4
 
-      - name: Checkout CommonLibF4 (powerof3 master)
-        # 用 master：dev-1.10.163 分支缺 F4SE::PluginVersionData，插件入口编不出来。
-        # master 的 REL::ID 问题由 ci/build.ps1 里「换掉 ImageSpaceEffect.h」那一步处理。
+      - name: Checkout CommonLibF4 (libxse)
+        # r208: 改用 libxse/CommonLibF4（官方仓库）。
+        # powerof3 fork 缺 BSLightingShaderMaterialBase.h，读准星材质贴图时编译失败。
         uses: actions/checkout@v4
         with:
-          repository: powerof3/CommonLibF4
-          ref: master
+          repository: libxse/CommonLibF4
+          ref: main
           path: CommonLibF4
           fetch-depth: 0
           clean: false
