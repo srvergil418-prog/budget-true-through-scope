@@ -388,6 +388,7 @@ namespace RC
 	static ID3D11DepthStencilState* s_dsNoDepthTest = nullptr;   // r168: 完全不测深度
 	// r169: 目镜 mask 资源
 	static ID3D11Texture2D* s_maskTex = nullptr;
+	static ID3D11Texture2D* s_maskStaging = nullptr;   // r172: 读回用
 	static ID3D11RenderTargetView* s_maskRTV = nullptr;
 	static ID3D11PixelShader* s_psMask = nullptr;
 	ID3D11ShaderResourceView* g_maskSRV = nullptr;
@@ -477,6 +478,12 @@ float4 main(float4 pos : SV_POSITION) : SV_Target {
 			if (SUCCEEDED(a_dev->CreateTexture2D(&mtd, nullptr, &s_maskTex)) && s_maskTex) {
 				a_dev->CreateRenderTargetView(s_maskTex, nullptr, &s_maskRTV);
 				a_dev->CreateShaderResourceView(s_maskTex, nullptr, &g_maskSRV);
+				// staging：CPU 读回 mask 中心值（诊断用）
+				D3D11_TEXTURE2D_DESC std2 = mtd;
+				std2.Usage = D3D11_USAGE_STAGING;
+				std2.BindFlags = 0;
+				std2.CPUAccessFlags = D3D11_CPU_ACCESS_READ;
+				a_dev->CreateTexture2D(&std2, nullptr, &s_maskStaging);
 			}
 
 			// mask PS：覆盖即写 1
@@ -2420,6 +2427,28 @@ float4 main(float4 pos : SV_POSITION) : SV_Target {
 		// 3D 接管那套因为"索引数无法唯一标识几何体"而误伤天空，已停用。
 		// r170: M1 调试视图也要能单独打开（不依赖旧 overlay 开关）
 		if (g_screenOverlay || g_maskDebug) OverlayDraw(a_sc);
+
+		// r172: 诊断 —— 读回 mask 中心像素，确认 mask 是否真的有内容
+		if (g_maskEnabled && s_maskTex && s_maskStaging) {
+			static int s_rbTick = 0;
+			static int s_rbLog = 0;
+			if ((s_rbTick++ % 60) == 0 && s_rbLog < 6) {
+				s_rbLog++;
+				auto* rdR = RE::BSGraphics::RendererData::GetSingleton();
+				if (rdR && rdR->context) {
+					auto* cR = (ID3D11DeviceContext*)static_cast<void*>(rdR->context);
+					cR->CopyResource(s_maskStaging, s_maskTex);
+					D3D11_MAPPED_SUBRESOURCE mr{};
+					if (SUCCEEDED(cR->Map(s_maskStaging, 0, D3D11_MAP_READ, 0, &mr))) {
+						const uint8_t* row = (const uint8_t*)mr.pData + (size_t)540 * mr.RowPitch;
+						const uint8_t vCenter = row[960];          // mask 中心
+						const uint8_t vCorner = *(const uint8_t*)mr.pData;  // 左上角
+						Log("[MASK-RB] center=%u corner=%u (0=空 255=满)", vCenter, vCorner);
+						cR->Unmap(s_maskStaging, 0);
+					}
+				}
+			}
+		}
 
 		// r171: overlay 采样完之后清 mask，为下一帧的 Lense 绘制做准备
 		if (g_maskEnabled && s_maskRTV) {
