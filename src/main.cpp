@@ -3,6 +3,11 @@
 
 #include <MinHook.h>
 
+// r203: 读取准星材质贴图路径用
+#include <RE/B/BSLightingShaderMaterialBase.h>
+#include <RE/B/BSShaderProperty.h>
+#include <RE/B/BSTextureSet.h>
+
 namespace RC
 {
 	// ======================= 日志 =======================
