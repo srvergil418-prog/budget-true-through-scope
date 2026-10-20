@@ -3,11 +3,6 @@
 
 #include <MinHook.h>
 
-// r214: 统一用 libxse/commonlibf4（powerof3 连 BSShaderMaterial.h 都没有导出）。
-#include <RE/B/BSLightingShaderMaterialBase.h>
-#include <RE/B/BSShaderProperty.h>
-#include <RE/B/BSTextureSet.h>
-
 namespace RC
 {
 	// ======================= 日志 =======================
