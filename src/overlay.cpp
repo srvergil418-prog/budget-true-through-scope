@@ -118,12 +118,17 @@ SamplerState gSamp : register(s0);
 float4 main(float4 pos : SV_POSITION) : SV_Target {
     float2 p = pos.xy;
 
-    // r169: pad1 = M1 调试模式（把 mask 直接铺满屏幕显示，红=1 黑=0）
+    // r169: pad1 = M1 调试模式（红 = mask 区域，绿 = 准星，一次看清两者关系）
     float2 muv = p / float2(screenW, screenH);
     float m = gMask.Sample(gSamp, muv).r;
     if (pad1 > 0.5) {
-        // M1 可视化：不画准星，只显示 mask 内容
-        return float4(m, 0.0, 0.0, 1.0);
+        float2 uvd = (p - float2(centerX, centerY)) / float2(boxW, boxH) + 0.5;
+        float4 cd = float4(0, 0, 0, 0);
+        if (uvd.x >= 0.0 && uvd.x <= 1.0 && uvd.y >= 0.0 && uvd.y <= 1.0) {
+            cd = gTex.Sample(gSamp, uvd);
+        }
+        // 红 = mask=1 区域；绿 = 准星贴图
+        return float4(m * 0.75, cd.g * 0.9, 0.0, 1.0);
     }
 
     // pad0 = M3 才启用的 mask 裁剪（当前阶段保持 0）
