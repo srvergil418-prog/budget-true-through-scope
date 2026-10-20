@@ -43,6 +43,18 @@ jobs:
           clean: false
           submodules: recursive
 
+      - name: Checkout commonlib-shared (REL + F4SE dependency)
+        # libxse/commonlibf4 的 .gitmodules 指向 lib/commonlib-shared，
+        # 但 checkout@v4 的 recursive 在跨仓库时不一定拉到；显式再检一次。
+        uses: actions/checkout@v4
+        with:
+          repository: libxse/commonlib-shared
+          ref: main
+          path: CommonLibF4/lib/commonlib-shared
+          fetch-depth: 1
+          clean: false
+          submodules: recursive
+
       - name: Checkout ImGui (docking, for the in-game tuning menu)
         uses: actions/checkout@v4
         with:
