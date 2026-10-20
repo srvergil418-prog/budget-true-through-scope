@@ -70,6 +70,7 @@ namespace RC
 	extern bool  g_maskUse;       // overlay 采样 mask 裁剪准星（M3）
 	extern bool  g_maskDebug;     // M1：双色调试（mask 红 + 准星绿）
 	extern bool  g_redCross;      // 红色十字（overlay 层，受 mask 裁切）
+	extern bool  g_strictDW;     // r180: SKIP DEPTH 严格身份匹配（诊断用，默认关）
 	extern ID3D11ShaderResourceView* g_maskSRV;   // overlay 读取用（main.cpp 创建）
 
 	// ---- overlay（overlay.cpp 实现）----
