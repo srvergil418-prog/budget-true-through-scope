@@ -2132,8 +2132,14 @@ float4 main(float4 pos : SV_POSITION) : SV_Target {
 		if (tri) {
 			type = "TriShape";
 			a_shapes++;
-			Log("[SUB] %*s%s tri=%u vert=%u cull=%d", a_depth * 2, "", a_obj->name.c_str(),
-				tri->numTriangles, (unsigned)tri->numVertices, a_obj->GetAppCulled() ? 1 : 0);
+			// r185: 加位置与包围球，用来判断哪一片玻璃离玩家（相机）更近
+			const auto& w = a_obj->world;
+			const auto& wb = a_obj->worldBound;
+			Log("[SUB] %*s%s tri=%u vert=%u cull=%d | world=(%.1f,%.1f,%.1f) | boundC=(%.1f,%.1f,%.1f) r=%.2f",
+				a_depth * 2, "", a_obj->name.c_str(),
+				tri->numTriangles, (unsigned)tri->numVertices, a_obj->GetAppCulled() ? 1 : 0,
+				w.translate.x, w.translate.y, w.translate.z,
+				wb.center.x, wb.center.y, wb.center.z, wb.fRadius);
 		} else if (a_obj->IsNode()) {
 			type = "Node";
 			auto* node = a_obj->IsNode();
@@ -2672,7 +2678,7 @@ float4 main(float4 pos : SV_POSITION) : SV_Target {
 	static void InstallHooks()
 	{
 		const auto mh = MH_Initialize();
-		Log("[BUILD] BudgetThroughScope r184 (sub-dump-per-scope) %s %s", __DATE__, __TIME__);
+		Log("[BUILD] BudgetThroughScope r185 (sub-pos) %s %s", __DATE__, __TIME__);
 		Log("[INIT] MH_Initialize = %d", (int)mh);
 		CreateDirectoryW(L"E:\\Custom Fallout4\\shots", nullptr);
 
