@@ -2288,6 +2288,12 @@ float4 main(float4 pos : SV_POSITION) : SV_Target {
 		Log("[PROFILE] unknown scope (no Lense / rear_glass)");
 	}
 
+	// r201: 同步给菜单显示
+	static void SyncProfileName()
+	{
+		strcpy_s(g_scopeProfileName, sizeof(g_scopeProfileName), s_scopeProfile.name);
+	}
+
 	// ======================= ScopeNormal 子树递归枚举 =======================
 	// r189: 位置采集上下文（相机 / 瞄具原点 / 三根局部轴），供 DumpSubtreeRec 使用
 	static RE::NiPoint3 s_subCamPos{};
@@ -2514,6 +2520,7 @@ float4 main(float4 pos : SV_POSITION) : SV_Target {
 					if (auto* sn2 = FindNode(a_pc, "ScopeNormal")) {
 						// r191: 判定当前瞄具属于哪个已验证家族（白名单）
 						IdentifyScopeProfile(sn2);
+					SyncProfileName();
 						// r200: profile 真正变化时重置旧身份（A+B 方案的 B）
 						{
 							static std::string s_prevProfile;
@@ -2943,7 +2950,7 @@ float4 main(float4 pos : SV_POSITION) : SV_Target {
 	static void InstallHooks()
 	{
 		const auto mh = MH_Initialize();
-		Log("[BUILD] BudgetThroughScope r200 (profile-isolation) %s %s", __DATE__, __TIME__);
+		Log("[BUILD] BudgetThroughScope r201 (tabs-menu) %s %s", __DATE__, __TIME__);
 		Log("[INIT] MH_Initialize = %d", (int)mh);
 		CreateDirectoryW(L"E:\\Custom Fallout4\\shots", nullptr);
 
