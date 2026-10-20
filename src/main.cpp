@@ -1340,6 +1340,36 @@ float4 main(float4 pos : SV_POSITION) : SV_Target {
 
 			// r198: 不再限制 stride —— K98k 是 20，ATACR 是 24（实测）
 			if (colorM && strideM > 0) {
+				// r208 (GPT P0): 每次 mask 写入前记录完整身份，供事后判定是否为目标几何。
+				// 目的：ADS 过渡期准星提前出现在镜外 -> 怀疑 mask 被非目标几何/非主 pass 写入。
+				{
+					static int s_maskwLog = 0;
+					if (s_maskwLog < 120) {
+						++s_maskwLog;
+						ID3D11Buffer* ibW = nullptr;
+						DXGI_FORMAT fmtW = DXGI_FORMAT_UNKNOWN;
+						UINT ioffW = 0;
+						a_ctx->IAGetIndexBuffer(&ibW, &fmtW, &ioffW);
+						D3D11_VIEWPORT vpW{};
+						UINT vpNW = 1;
+						a_ctx->RSGetViewports(&vpNW, &vpW);
+						ID3D11RenderTargetView* rtvW[8] = {};
+						ID3D11DepthStencilView* dsvW = nullptr;
+						a_ctx->OMGetRenderTargets(8, rtvW, &dsvW);
+						Log("[MASKW] #%d profile=%s | count=%u start=%u base=%d | VB=%p voff=%u stride=%u | IB=%p ioff=%u | vp=(%.0f,%.0f %.0fx%.0f) | rtv0=%p dsv=%p | target=%u",
+							s_maskwLog, s_scopeProfile.name,
+							a_count, a_start, a_base,
+							(void*)vbM, voffM, strideM,
+							(void*)ibW, ioffW,
+							vpW.TopLeftX, vpW.TopLeftY, vpW.Width, vpW.Height,
+							(void*)rtvW[0], (void*)dsvW,
+							s_scopeProfile.targetIndexCount);
+						for (int i = 0; i < 8; ++i) if (rtvW[i]) rtvW[i]->Release();
+						if (dsvW) dsvW->Release();
+						if (ibW) ibW->Release();
+					}
+				}
+
 				// 1) 原始绘制
 				s_origDrawIndexed(a_ctx, a_count, a_start, a_base);
 
@@ -2972,7 +3002,7 @@ float4 main(float4 pos : SV_POSITION) : SV_Target {
 	static void InstallHooks()
 	{
 		const auto mh = MH_Initialize();
-		Log("[BUILD] BudgetThroughScope r207 (no-redring) %s %s", __DATE__, __TIME__);
+		Log("[BUILD] BudgetThroughScope r208 (maskw-log) %s %s", __DATE__, __TIME__);
 		Log("[INIT] MH_Initialize = %d", (int)mh);
 		CreateDirectoryW(L"E:\\Custom Fallout4\\shots", nullptr);
 
