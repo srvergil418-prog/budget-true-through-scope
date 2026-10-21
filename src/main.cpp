@@ -2821,10 +2821,36 @@ float4 main(float4 pos : SV_POSITION) : SV_Target {
 								if (FindShapeLike(sa, target->name.c_str()) == target) targetRoot = sa;
 							}
 						}
+						// r235: 延迟隐藏兄弟几何 —— 按下右键瞬间就 cull 会让瞄具在模型还没拉近时
+						// 就闪现成最终状态（用户反馈的过渡观感问题）。
+						// 现在：立即 uncull 目标（mask 需要），兄弟 cull 延后到 g_siblingHideDelay 毫秒。
+						static RE::NiAVObject* s_pendingRoot = nullptr;
+						static uint64_t        s_pendingSince = 0;
+						static bool            s_siblingsHidden = false;
+
 						if (targetRoot) {
-							hideSiblings(targetRoot);
-							Log("[CULL] hid %d sibling shape(s) inside %s (kept target=%s)",
-								hidden, targetRoot->name.c_str(), target->name.c_str());
+							const uint64_t now = GetTickCount64();
+							if (!s_lastADS) {
+								// 刚进入 ADS：登记待处理
+								s_pendingRoot = targetRoot;
+								s_pendingSince = now;
+								s_siblingsHidden = false;
+								Log("[CULL] ADS enter: target=%s root=%s delay=%.0fms",
+									target->name.c_str(), targetRoot->name.c_str(), g_siblingHideDelay);
+							}
+
+							const bool due = (s_pendingRoot != nullptr) && !s_siblingsHidden &&
+								((double)(now - s_pendingSince) >= (double)g_siblingHideDelay);
+
+							if (due && s_pendingRoot == targetRoot) {
+								hideSiblings(targetRoot);
+								s_siblingsHidden = true;
+								s_pendingRoot = nullptr;
+								Log("[CULL] hid %d sibling shape(s) inside %s after %.0f ms (kept target=%s)",
+									hidden, targetRoot->name.c_str(),
+									(double)(now - s_pendingSince), target->name.c_str());
+							}
+						} else {
 						} else {
 							Log("[CULL] target %s not under ScopeNormal/ScopeAiming - skip sibling hide",
 								target->name.c_str());
@@ -3375,7 +3401,7 @@ float4 main(float4 pos : SV_POSITION) : SV_Target {
 	static void InstallHooks()
 	{
 		const auto mh = MH_Initialize();
-		Log("[BUILD] BudgetThroughScope r234 (only-target-subtree) %s %s", __DATE__, __TIME__);
+		Log("[BUILD] BudgetThroughScope r235 (delayed-hide) %s %s", __DATE__, __TIME__);
 		Log("[INIT] MH_Initialize = %d", (int)mh);
 		CreateDirectoryW(L"E:\\Custom Fallout4\\shots", nullptr);
 
