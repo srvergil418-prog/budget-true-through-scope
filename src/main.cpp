@@ -2809,10 +2809,26 @@ float4 main(float4 pos : SV_POSITION) : SV_Target {
 								}
 							}
 						};
-						hideSiblings(FindNode(a_pc, "ScopeNormal"));
-						hideSiblings(FindNode(a_pc, "ScopeAiming"));
-						Log("[CULL] hid %d sibling shape(s) inside scope subtrees (kept target=%s)",
-							hidden, target->name.c_str());
+						// r234: 只处理目标所在的子树，另一个子树完全不碰。
+						// ScopeAiming 装的是 STS 开镜时要显示的内容（HuntingScopeGlass / ScopeFade /
+						// StrikeEagle_Aim / ScopeInside_Lo ...），cull 它会把整个瞄准画面干掉。
+						RE::NiAVObject* targetRoot = nullptr;
+						if (auto* sn = FindNode(a_pc, "ScopeNormal")) {
+							if (FindShapeLike(sn, target->name.c_str()) == target) targetRoot = sn;
+						}
+						if (!targetRoot) {
+							if (auto* sa = FindNode(a_pc, "ScopeAiming")) {
+								if (FindShapeLike(sa, target->name.c_str()) == target) targetRoot = sa;
+							}
+						}
+						if (targetRoot) {
+							hideSiblings(targetRoot);
+							Log("[CULL] hid %d sibling shape(s) inside %s (kept target=%s)",
+								hidden, targetRoot->name.c_str(), target->name.c_str());
+						} else {
+							Log("[CULL] target %s not under ScopeNormal/ScopeAiming - skip sibling hide",
+								target->name.c_str());
+						}
 					}
 
 					// 2) K98k 的旧硬编码保留（对其它瞄具是 no-op）
@@ -3359,7 +3375,7 @@ float4 main(float4 pos : SV_POSITION) : SV_Target {
 	static void InstallHooks()
 	{
 		const auto mh = MH_Initialize();
-		Log("[BUILD] BudgetThroughScope r233 (hide-siblings) %s %s", __DATE__, __TIME__);
+		Log("[BUILD] BudgetThroughScope r234 (only-target-subtree) %s %s", __DATE__, __TIME__);
 		Log("[INIT] MH_Initialize = %d", (int)mh);
 		CreateDirectoryW(L"E:\\Custom Fallout4\\shots", nullptr);
 
