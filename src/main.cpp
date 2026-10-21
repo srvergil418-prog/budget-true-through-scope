@@ -2682,12 +2682,15 @@ float4 main(float4 pos : SV_POSITION) : SV_Target {
 				// 只读不写，1.5 秒后停止，避免刷屏。
 				{
 					static uint64_t s_visEnterTick = 0;
-					if (!s_lastADS) s_visEnterTick = GetTickCount64();
+					static int s_visLog = 0;
+					if (!s_lastADS) {
+						s_visEnterTick = GetTickCount64();
+						s_visLog = 0;   // r238: 每次 ADS 重新开始记录（原来只累计 120 条，第一次就用完）
+					}
 					const uint64_t nowV = GetTickCount64();
 					const uint64_t dtV = nowV - s_visEnterTick;
 					if (dtV < 1500) {
-						static int s_visLog = 0;
-						if (s_visLog < 120) {   // 约 1.5s @ 80fps
+						if (s_visLog < 120) {   // 约 1.5s @ 80fps，每次 ADS 独立计数
 							++s_visLog;
 							auto cullOf = [&](const char* nm) -> int {
 								if (auto* o = FindNode(a_pc, nm)) return o->GetAppCulled() ? 1 : 0;
@@ -2701,6 +2704,9 @@ float4 main(float4 pos : SV_POSITION) : SV_Target {
 								cullOf("StrikeEagle_Lo"),
 								cullOf("ScopeFade"),
 								cullOf("Reticle"));
+							// r238: 用户第一次选完 shape 后，s_userPickedShape 在本次 ADS 的后半段才生效，
+							// 所以额外打一条 profile 视角的记录（第二次 ADS 起就一致了）。
+							(void)0;
 						}
 					}
 				}
@@ -3444,7 +3450,7 @@ float4 main(float4 pos : SV_POSITION) : SV_Target {
 	static void InstallHooks()
 	{
 		const auto mh = MH_Initialize();
-		Log("[BUILD] BudgetThroughScope r237 (target-warn) %s %s", __DATE__, __TIME__);
+		Log("[BUILD] BudgetThroughScope r238 (vis-per-ads) %s %s", __DATE__, __TIME__);
 		Log("[INIT] MH_Initialize = %d", (int)mh);
 		CreateDirectoryW(L"E:\\Custom Fallout4\\shots", nullptr);
 
