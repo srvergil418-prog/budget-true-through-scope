@@ -75,6 +75,20 @@ namespace RC
 	extern char  g_scopeProfileName[32];   // r201: 当前识别到的瞄具 profile 名（菜单显示用）
 	extern bool  g_showScopeReticle;      // r202: 显示 STS 原准星（贴在瞄具上），默认 false
 	extern bool  g_scopeValid;           // r205: 当前瞄具是否被 BTTS 识别（false = 机械瞄具/未知，不画准星）
+
+	// r229: Phase 1 适配器 —— GUI 需要读 shape 列表并触发选中
+	struct ShapeEntryView
+	{
+		char name[64];
+		unsigned tri;
+		unsigned vert;
+		unsigned count;
+		unsigned maxIdx;
+	};
+	int  RC_ShapeCount();
+	bool RC_GetShape(int a_index, ShapeEntryView& a_out);
+	bool RC_ApplyShape(int a_index);
+	int  RC_UserPicked();
 	extern ID3D11ShaderResourceView* g_maskSRV;   // overlay 读取用（main.cpp 创建）
 
 	// ---- overlay（overlay.cpp 实现）----
