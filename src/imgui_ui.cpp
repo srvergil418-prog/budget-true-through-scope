@@ -210,6 +210,40 @@ namespace RC
 					ImGui::EndTabItem();
 				}
 
+				// ======================= Tab: Adapter =======================
+				// r229: Phase 1 最小适配器 —— 列出当前 ScopeNormal 子树里的所有 shape，
+				// 用户点一个就临时把它当作目镜目标（不写盘，配合 mask debug view 验证）。
+				if (ImGui::BeginTabItem("Adapter")) {
+					const int n = RC::RC_ShapeCount();
+					if (n <= 0) {
+						ImGui::TextDisabled("No shapes scanned yet.");
+						ImGui::TextDisabled("Equip a scoped weapon and ADS once, then reopen this tab.");
+					} else {
+						ImGui::Text("Shapes under ScopeNormal (%d):", n);
+						ImGui::TextDisabled("click one to use it as the eyepiece target (temporary)");
+						ImGui::Separator();
+						const int picked = RC::RC_UserPicked();
+						for (int i = 0; i < n; ++i) {
+							RC::ShapeEntryView v{};
+							if (!RC::RC_GetShape(i, v)) continue;
+							ImGui::PushID(i);
+							if (ImGui::Selectable(v.name, picked == i, ImGuiSelectableFlags_None,
+								ImVec2(0, 0))) {
+								RC::RC_ApplyShape(i);
+							}
+							ImGui::SameLine(220.0f);
+							ImGui::TextDisabled("tri=%u vert=%u -> count=%u maxIdx<=%u",
+								v.tri, v.vert, v.count, v.maxIdx);
+							ImGui::PopID();
+						}
+						ImGui::Separator();
+						if (ImGui::Button("clear user pick")) RC::RC_ApplyShape(-1);
+						ImGui::SameLine();
+						ImGui::TextDisabled("current profile: %s", g_scopeProfileName);
+					}
+					ImGui::EndTabItem();
+				}
+
 				// ======================= Tab: Debug =======================
 				if (ImGui::BeginTabItem("Debug")) {
 					ImGui::Text("STS original reticle");
