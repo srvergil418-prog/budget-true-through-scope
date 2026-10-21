@@ -403,6 +403,24 @@ namespace RC
 		UINT maxVertexIdx = 0;     // r227: 目标几何的最大顶点索引上限（用于排除同 count 的其他几何）
 	};
 	static ScopeProfile s_scopeProfile;
+
+	// ======================= r229: Phase 1 最小适配器 =======================
+	// 列出当前 ScopeNormal 子树里所有可绘制 shape，让用户在 GUI 里挑一个当目镜。
+	// 选中后只设置临时 profile（不写盘），配合 mask debug view 验证。
+	struct ShapeEntry
+	{
+		char   name[64] = {};
+		UINT   tri = 0;
+		UINT   vert = 0;
+		UINT   count = 0;    // tri * 3
+		UINT   maxIdx = 0;   // vert - 1
+	};
+	static constexpr int kMaxShapeEntries = 32;
+	static ShapeEntry s_shapeList[kMaxShapeEntries];
+	static int        s_shapeCount = 0;
+	static bool       s_shapeListDirty = true;   // ADS 进入时置 true，重新扫描
+	static int        s_userPickedShape = -1;    // 用户点选的索引（-1 = 用内置 profile）
+
 	static ID3D11Texture2D* s_maskTex = nullptr;
 	static ID3D11Texture2D* s_maskStaging = nullptr;   // r172: 读回用
 	static std::atomic<int> s_maskWrites{ 0 };   // r173: mask 写入总次数
@@ -2463,6 +2481,81 @@ float4 main(float4 pos : SV_POSITION) : SV_Target {
 		g_scopeValid = (strcmp(s_scopeProfile.name, "unknown") != 0);
 	}
 
+	// r229: 递归收集 ScopeNormal 子树里的所有可绘制 shape，供 GUI 列表用
+	static void CollectShapesRec(RE::NiAVObject* a_obj, int a_depth)
+	{
+		if (!a_obj || a_depth > 6 || s_shapeCount >= kMaxShapeEntries) return;
+		if (auto* tri = a_obj->IsTriShape()) {
+			ShapeEntry& e = s_shapeList[s_shapeCount];
+			strncpy_s(e.name, sizeof(e.name), a_obj->name.c_str(), _TRUNCATE);
+			e.tri = tri->numTriangles;
+			e.vert = (UINT)tri->numVertices;
+			e.count = tri->numTriangles * 3;
+			e.maxIdx = (e.vert > 0) ? (e.vert - 1) : 0;
+			++s_shapeCount;
+			return;
+		}
+		if (auto* node = a_obj->IsNode()) {
+			for (auto& ch : node->children) {
+				if (ch) CollectShapesRec(ch.get(), a_depth + 1);
+			}
+		}
+	}
+
+	static void CollectShapes(RE::NiAVObject* a_scopeNormal)
+	{
+		s_shapeCount = 0;
+		s_shapeListDirty = false;
+		if (!a_scopeNormal) return;
+		CollectShapesRec(a_scopeNormal, 0);
+		Log("[ADAPTER] scanned %d shapes under ScopeNormal", s_shapeCount);
+		for (int i = 0; i < s_shapeCount; ++i) {
+			Log("[ADAPTER]   [%d] %s tri=%u vert=%u -> count=%u maxIdx<=%u",
+				i, s_shapeList[i].name, s_shapeList[i].tri, s_shapeList[i].vert,
+				s_shapeList[i].count, s_shapeList[i].maxIdx);
+		}
+	}
+
+	// r229: 应用用户选中的 shape 作为临时 profile
+	static bool ApplyUserPickedShape(int a_index)
+	{
+		if (a_index < 0) { s_userPickedShape = -1; Log("[ADAPTER] user pick cleared"); return true; }
+		if (a_index >= s_shapeCount) return false;
+		s_userPickedShape = a_index;
+		const ShapeEntry& e = s_shapeList[a_index];
+		s_scopeProfile = ScopeProfile{};
+		s_scopeProfile.name = "UserPick";
+		s_scopeProfile.targetIndexCount = e.count;
+		s_scopeProfile.maskStart = 0;
+		s_scopeProfile.maskCount = e.count;
+		s_scopeProfile.expectedStride = 0;   // 未知，不校验
+		s_scopeProfile.maxVertexIdx = e.maxIdx;
+		ResetLenseIdentity();
+		SyncProfileName();
+		Log("[ADAPTER] applied user pick [%d] %s -> count=%u maxIdx<=%u",
+			a_index, e.name, e.count, e.maxIdx);
+		return true;
+	}
+
+	// r229: 给 GUI 的导出接口（同 namespace 内，非 static）
+	int RC_ShapeCount() { return s_shapeCount; }
+
+	bool RC_GetShape(int a_index, ShapeEntryView& a_out)
+	{
+		if (a_index < 0 || a_index >= s_shapeCount) return false;
+		const ShapeEntry& e = s_shapeList[a_index];
+		strncpy_s(a_out.name, sizeof(a_out.name), e.name, _TRUNCATE);
+		a_out.tri = e.tri;
+		a_out.vert = e.vert;
+		a_out.count = e.count;
+		a_out.maxIdx = e.maxIdx;
+		return true;
+	}
+
+	bool RC_ApplyShape(int a_index) { return ApplyUserPickedShape(a_index); }
+
+	int RC_UserPicked() { return s_userPickedShape; }
+
 	// ======================= ScopeNormal 子树递归枚举 =======================
 	// r189: 位置采集上下文（相机 / 瞄具原点 / 三根局部轴），供 DumpSubtreeRec 使用
 	static RE::NiPoint3 s_subCamPos{};
@@ -2716,8 +2809,14 @@ float4 main(float4 pos : SV_POSITION) : SV_Target {
 				if (!s_lastADS) {
 					// P0：递归枚举整个 ScopeNormal 子树（确认是否漏了 shape）
 					if (auto* sn2 = FindNode(a_pc, "ScopeNormal")) {
+						// r229: 扫描子树里的所有 shape，供 GUI 适配器列表用
+						CollectShapes(sn2);
 						// r191: 判定当前瞄具属于哪个已验证家族（白名单）
 						IdentifyScopeProfile(sn2);
+						// r229: 用户点选的 shape 优先于内置识别（临时 profile，不写盘）
+						if (s_userPickedShape >= 0 && s_userPickedShape < s_shapeCount) {
+							ApplyUserPickedShape(s_userPickedShape);
+						}
 					SyncProfileName();
 						// r200: profile 真正变化时重置旧身份（A+B 方案的 B）
 						{
@@ -3172,7 +3271,7 @@ float4 main(float4 pos : SV_POSITION) : SV_Target {
 	static void InstallHooks()
 	{
 		const auto mh = MH_Initialize();
-		Log("[BUILD] BudgetThroughScope r228 (vortex-se) %s %s", __DATE__, __TIME__);
+		Log("[BUILD] BudgetThroughScope r229 (adapter-phase1) %s %s", __DATE__, __TIME__);
 		Log("[INIT] MH_Initialize = %d", (int)mh);
 		CreateDirectoryW(L"E:\\Custom Fallout4\\shots", nullptr);
 
