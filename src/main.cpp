@@ -2735,6 +2735,40 @@ float4 main(float4 pos : SV_POSITION) : SV_Target {
 						}
 					}
 					if (target) {
+						// r232 (GPT 步骤 1): 记录目标完整父链 + 每级 cull 状态，不改行为。
+						// 目的：确认 ScopeNormal/ScopeAiming 是否是安全边界、镜筒支架挂在哪。
+						{
+							static int s_chainLog = 0;
+							if (s_chainLog < 6) {
+								++s_chainLog;
+								Log("[CHAIN] === target=%s (profile=%s) ===", target->name.c_str(), s_scopeProfile.name);
+								Log("[CHAIN] target cull=%d tri=%d",
+									target->GetAppCulled() ? 1 : 0, target->IsTriShape() ? 1 : 0);
+								auto* q = target->parent;
+								int d = 0;
+								while (q && d < 12) {
+									Log("[CHAIN]   parent[%d] %s cull=%d tri=%d",
+										d, q->name.c_str(), q->GetAppCulled() ? 1 : 0, q->IsTriShape() ? 1 : 0);
+									q = q->parent;
+									++d;
+								}
+								// 同子树下的兄弟 shape（判断谁会被祖先 uncull 带出来）
+								auto* root = FindNode(a_pc, "ScopeNormal");
+								if (!root) root = FindNode(a_pc, "ScopeAiming");
+								if (auto* rn = root ? root->IsNode() : nullptr) {
+									Log("[CHAIN] siblings under %s:", root->name.c_str());
+									for (auto& ch : rn->children) {
+										if (!ch) continue;
+										auto* t2 = ch->IsTriShape();
+										Log("[CHAIN]   sib %s tri=%d vert=%u cull=%d",
+											ch->name.c_str(), t2 ? 1 : 0,
+											t2 ? (unsigned)t2->numVertices : 0u,
+											ch->GetAppCulled() ? 1 : 0);
+									}
+								}
+							}
+						}
+
 						SetCullRecorded(target, false);
 						auto* p = target->parent;
 						int guard = 0;
@@ -3289,7 +3323,7 @@ float4 main(float4 pos : SV_POSITION) : SV_Target {
 	static void InstallHooks()
 	{
 		const auto mh = MH_Initialize();
-		Log("[BUILD] BudgetThroughScope r231 (userpick-uncull) %s %s", __DATE__, __TIME__);
+		Log("[BUILD] BudgetThroughScope r232 (chain-log) %s %s", __DATE__, __TIME__);
 		Log("[INIT] MH_Initialize = %d", (int)mh);
 		CreateDirectoryW(L"E:\\Custom Fallout4\\shots", nullptr);
 
