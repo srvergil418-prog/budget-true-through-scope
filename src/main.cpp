@@ -2779,7 +2779,43 @@ float4 main(float4 pos : SV_POSITION) : SV_Target {
 					} else {
 						Log("[CULL] forceLense: target NOT found (profile=%s)", s_scopeProfile.name);
 					}
-					// 2) cull 镜筒/镜架（记录原始状态），让目镜内视野干净
+
+					// r233: 隐藏同子树里的其他几何。
+					// 实测：ScopeNormal 本身 cull=1，uncull 它才能看见目标镜片，
+					// 但这也把兄弟节点（镜筒 StrikeEagle_Lo / 主体 atacr18 / 支架）一起放出来了。
+					// K98k 时代是靠硬编码 polySurface22/Mount1/Mount2 掩盖的，这里改成通用做法：
+					// 在 ScopeNormal + ScopeAiming 子树内，除目标外的所有 TriShape 一律隐藏。
+					if (target) {
+						int hidden = 0;
+						auto hideSiblings = [&](RE::NiAVObject* a_root) {
+							if (!a_root) return;
+							std::vector<RE::NiAVObject*> stack{ a_root };
+							int guard = 0;
+							while (!stack.empty() && guard++ < 512) {
+								RE::NiAVObject* cur = stack.back();
+								stack.pop_back();
+								if (!cur) continue;
+								if (auto* t = cur->IsTriShape()) {
+									if (cur != target) {
+										SetCullRecorded(cur, true);
+										++hidden;
+									}
+									continue;   // shape 不再往下走
+								}
+								if (auto* n = cur->IsNode()) {
+									for (auto& ch : n->children) {
+										if (ch) stack.push_back(ch.get());
+									}
+								}
+							}
+						};
+						hideSiblings(FindNode(a_pc, "ScopeNormal"));
+						hideSiblings(FindNode(a_pc, "ScopeAiming"));
+						Log("[CULL] hid %d sibling shape(s) inside scope subtrees (kept target=%s)",
+							hidden, target->name.c_str());
+					}
+
+					// 2) K98k 的旧硬编码保留（对其它瞄具是 no-op）
 					const char* others[] = { "polySurface22", "Mount1", "Mount2" };
 					for (auto* o : others) {
 						if (auto* on = FindNode(a_pc, o)) SetCullRecorded(on, true);
@@ -3323,7 +3359,7 @@ float4 main(float4 pos : SV_POSITION) : SV_Target {
 	static void InstallHooks()
 	{
 		const auto mh = MH_Initialize();
-		Log("[BUILD] BudgetThroughScope r232 (chain-log) %s %s", __DATE__, __TIME__);
+		Log("[BUILD] BudgetThroughScope r233 (hide-siblings) %s %s", __DATE__, __TIME__);
 		Log("[INIT] MH_Initialize = %d", (int)mh);
 		CreateDirectoryW(L"E:\\Custom Fallout4\\shots", nullptr);
 
