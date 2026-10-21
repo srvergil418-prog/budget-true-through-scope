@@ -2798,6 +2798,22 @@ float4 main(float4 pos : SV_POSITION) : SV_Target {
 						}
 
 						SetCullRecorded(target, false);
+						// r237 (GPT): 检查目标祖先是否被游戏隐藏 —— 如果是，说明这个 shape
+						// 在稳定 ADS 时本来就不可见，我们是在强行打开它（会带出整棵子树）。
+						// 只诊断，不改变现有行为（K98k/ATACR 依赖当前的 uncull）。
+						{
+							auto* q = target->parent;
+							int d = 0;
+							while (q && d < 12) {
+								if (q->GetAppCulled()) {
+									Log("[TARGET-WARN] %s: ancestor[%d] '%s' is CULLED -> this shape is hidden in stable ADS",
+										target->name.c_str(), d, q->name.c_str());
+									break;
+								}
+								q = q->parent;
+								++d;
+							}
+						}
 						auto* p = target->parent;
 						int guard = 0;
 						while (p && guard++ < 10) {
@@ -3428,7 +3444,7 @@ float4 main(float4 pos : SV_POSITION) : SV_Target {
 	static void InstallHooks()
 	{
 		const auto mh = MH_Initialize();
-		Log("[BUILD] BudgetThroughScope r236 (vis-log) %s %s", __DATE__, __TIME__);
+		Log("[BUILD] BudgetThroughScope r237 (target-warn) %s %s", __DATE__, __TIME__);
 		Log("[INIT] MH_Initialize = %d", (int)mh);
 		CreateDirectoryW(L"E:\\Custom Fallout4\\shots", nullptr);
 
