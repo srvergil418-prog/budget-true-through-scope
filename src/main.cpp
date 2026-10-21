@@ -414,6 +414,7 @@ namespace RC
 		UINT   vert = 0;
 		UINT   count = 0;    // tri * 3
 		UINT   maxIdx = 0;   // vert - 1
+		char   source = '?'; // 'A'=ScopeAiming / 'N'=ScopeNormal
 	};
 	static constexpr int kMaxShapeEntries = 32;
 	static ShapeEntry s_shapeList[kMaxShapeEntries];
@@ -2481,8 +2482,8 @@ float4 main(float4 pos : SV_POSITION) : SV_Target {
 		g_scopeValid = (strcmp(s_scopeProfile.name, "unknown") != 0);
 	}
 
-	// r229: 递归收集 ScopeNormal 子树里的所有可绘制 shape，供 GUI 列表用
-	static void CollectShapesRec(RE::NiAVObject* a_obj, int a_depth)
+	// r230: 递归收集 shape。附加来源标记 'A'=ScopeAiming / 'N'=ScopeNormal。
+	static void CollectShapesRec(RE::NiAVObject* a_obj, int a_depth, char a_source)
 	{
 		if (!a_obj || a_depth > 6 || s_shapeCount >= kMaxShapeEntries) return;
 		if (auto* tri = a_obj->IsTriShape()) {
@@ -2492,27 +2493,35 @@ float4 main(float4 pos : SV_POSITION) : SV_Target {
 			e.vert = (UINT)tri->numVertices;
 			e.count = tri->numTriangles * 3;
 			e.maxIdx = (e.vert > 0) ? (e.vert - 1) : 0;
+			e.source = a_source;
 			++s_shapeCount;
 			return;
 		}
 		if (auto* node = a_obj->IsNode()) {
 			for (auto& ch : node->children) {
-				if (ch) CollectShapesRec(ch.get(), a_depth + 1);
+				if (ch) CollectShapesRec(ch.get(), a_depth + 1, a_source);
 			}
 		}
 	}
 
-	static void CollectShapes(RE::NiAVObject* a_scopeNormal)
+	// r230: 同时扫描 ScopeAiming（ADS 可见，透明玻璃）和 ScopeNormal（腰射可见，不透明目镜）。
+	// 用户实测：Vortex 在开镜时会把不透明的 normal 目镜换成 aiming 的透明玻璃，
+	// 只扫 ScopeNormal 会选到开镜后已被剔除的那片。
+	static void CollectShapes(RE::PlayerCharacter* a_pc)
 	{
 		s_shapeCount = 0;
 		s_shapeListDirty = false;
-		if (!a_scopeNormal) return;
-		CollectShapesRec(a_scopeNormal, 0);
-		Log("[ADAPTER] scanned %d shapes under ScopeNormal", s_shapeCount);
+		if (auto* aiming = FindNode(a_pc, "ScopeAiming")) {
+			CollectShapesRec(aiming, 0, 'A');
+		}
+		if (auto* normal = FindNode(a_pc, "ScopeNormal")) {
+			CollectShapesRec(normal, 0, 'N');
+		}
+		Log("[ADAPTER] scanned %d shapes (A=ScopeAiming / N=ScopeNormal)", s_shapeCount);
 		for (int i = 0; i < s_shapeCount; ++i) {
-			Log("[ADAPTER]   [%d] %s tri=%u vert=%u -> count=%u maxIdx<=%u",
-				i, s_shapeList[i].name, s_shapeList[i].tri, s_shapeList[i].vert,
-				s_shapeList[i].count, s_shapeList[i].maxIdx);
+			Log("[ADAPTER]   [%d] (%c) %s tri=%u vert=%u -> count=%u maxIdx<=%u",
+				i, s_shapeList[i].source, s_shapeList[i].name, s_shapeList[i].tri,
+				s_shapeList[i].vert, s_shapeList[i].count, s_shapeList[i].maxIdx);
 		}
 	}
 
@@ -2810,7 +2819,7 @@ float4 main(float4 pos : SV_POSITION) : SV_Target {
 					// P0：递归枚举整个 ScopeNormal 子树（确认是否漏了 shape）
 					if (auto* sn2 = FindNode(a_pc, "ScopeNormal")) {
 						// r229: 扫描子树里的所有 shape，供 GUI 适配器列表用
-						CollectShapes(sn2);
+						CollectShapes(a_pc);
 						// r191: 判定当前瞄具属于哪个已验证家族（白名单）
 						IdentifyScopeProfile(sn2);
 						// r229: 用户点选的 shape 优先于内置识别（临时 profile，不写盘）
@@ -3271,7 +3280,7 @@ float4 main(float4 pos : SV_POSITION) : SV_Target {
 	static void InstallHooks()
 	{
 		const auto mh = MH_Initialize();
-		Log("[BUILD] BudgetThroughScope r229 (adapter-phase1) %s %s", __DATE__, __TIME__);
+		Log("[BUILD] BudgetThroughScope r230 (aiming-tree) %s %s", __DATE__, __TIME__);
 		Log("[INIT] MH_Initialize = %d", (int)mh);
 		CreateDirectoryW(L"E:\\Custom Fallout4\\shots", nullptr);
 
