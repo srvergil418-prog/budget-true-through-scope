@@ -75,6 +75,7 @@ namespace RC
 	extern char  g_scopeProfileName[32];   // r201: 当前识别到的瞄具 profile 名（菜单显示用）
 	extern bool  g_showScopeReticle;      // r202: 显示 STS 原准星（贴在瞄具上），默认 false
 	extern bool  g_scopeValid;           // r205: 当前瞄具是否被 BTTS 识别（false = 机械瞄具/未知，不画准星）
+	extern float g_siblingHideDelay;    // r235: 兄弟几何延迟隐藏（毫秒，0 = 立即）
 
 	// r229: Phase 1 适配器 —— GUI 需要读 shape 列表并触发选中
 	struct ShapeEntryView
