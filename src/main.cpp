@@ -2851,7 +2851,6 @@ float4 main(float4 pos : SV_POSITION) : SV_Target {
 									(double)(now - s_pendingSince), target->name.c_str());
 							}
 						} else {
-						} else {
 							Log("[CULL] target %s not under ScopeNormal/ScopeAiming - skip sibling hide",
 								target->name.c_str());
 						}
