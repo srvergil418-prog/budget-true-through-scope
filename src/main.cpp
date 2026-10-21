@@ -2677,6 +2677,34 @@ float4 main(float4 pos : SV_POSITION) : SV_Target {
 			if (ads) s_frame++;
 
 			if (ads) {
+				// r236 (GPT 步骤): 诊断 —— 每帧采样关键节点的 cull 值，带时间戳。
+				// 目的：确认 STS 的剔除是「动画在某个时刻切了 cull」还是「本来就是静止值」。
+				// 只读不写，1.5 秒后停止，避免刷屏。
+				{
+					static uint64_t s_visEnterTick = 0;
+					if (!s_lastADS) s_visEnterTick = GetTickCount64();
+					const uint64_t nowV = GetTickCount64();
+					const uint64_t dtV = nowV - s_visEnterTick;
+					if (dtV < 1500) {
+						static int s_visLog = 0;
+						if (s_visLog < 120) {   // 约 1.5s @ 80fps
+							++s_visLog;
+							auto cullOf = [&](const char* nm) -> int {
+								if (auto* o = FindNode(a_pc, nm)) return o->GetAppCulled() ? 1 : 0;
+								return -1;
+							};
+							Log("[VIS] t=%llums SN=%d SA=%d tgt=%d sib=%d fade=%d ret=%d",
+								(unsigned long long)dtV,
+								cullOf("ScopeNormal"), cullOf("ScopeAiming"),
+								(s_userPickedShape >= 0 && s_userPickedShape < s_shapeCount)
+									? cullOf(s_shapeList[s_userPickedShape].name) : -9,
+								cullOf("StrikeEagle_Lo"),
+								cullOf("ScopeFade"),
+								cullOf("Reticle"));
+						}
+					}
+				}
+
 				// r179: 只在「刚进入 ADS」时建立一次原始状态快照。
 				// 关键修复：原来 s_cullRec.clear() 写在每帧路径里，
 				// 导致 orig 记录到的是我们上一帧改过的值，退出时恢复失真。
@@ -3400,7 +3428,7 @@ float4 main(float4 pos : SV_POSITION) : SV_Target {
 	static void InstallHooks()
 	{
 		const auto mh = MH_Initialize();
-		Log("[BUILD] BudgetThroughScope r235 (delayed-hide) %s %s", __DATE__, __TIME__);
+		Log("[BUILD] BudgetThroughScope r236 (vis-log) %s %s", __DATE__, __TIME__);
 		Log("[INIT] MH_Initialize = %d", (int)mh);
 		CreateDirectoryW(L"E:\\Custom Fallout4\\shots", nullptr);
 
