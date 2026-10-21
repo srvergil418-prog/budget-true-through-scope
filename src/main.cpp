@@ -2715,12 +2715,21 @@ float4 main(float4 pos : SV_POSITION) : SV_Target {
 					}
 				};
 				if (g_forceLense) {
-					// r196: 按 profile 选目标节点 —— K98k 用 "Lense"，ATACR 用 "rear_glass"。
-					// 原来硬编码 "Lense"，ATACR 没有这个节点，所以什么都没 uncull。
+					// r231: 按 profile 选目标节点。
+					// K98k = "Lense"，ATACR = "rear_glass"，VortexSE = "StrikeEagleLens"。
+					// 用户选中的 shape 优先（适配器 Phase 1）——直接用它的节点名精确查找。
 					RE::NiAVObject* target = nullptr;
-					if (auto* snP = FindNode(a_pc, "ScopeNormal")) {
+					if (s_userPickedShape >= 0 && s_userPickedShape < s_shapeCount) {
+						target = FindNode(a_pc, s_shapeList[s_userPickedShape].name);
+						if (!target) {
+							Log("[CULL] user-picked shape '%s' not found in scene tree",
+								s_shapeList[s_userPickedShape].name);
+						}
+					} else if (auto* snP = FindNode(a_pc, "ScopeNormal")) {
 						if (strcmp(s_scopeProfile.name, "ATACR") == 0) {
 							target = FindShapeLike(snP, "rear_glass");
+						} else if (strcmp(s_scopeProfile.name, "VortexSE") == 0) {
+							target = FindShapeLike(snP, "StrikeEagleLens");
 						} else {
 							target = FindShapeLike(snP, "Lense");
 						}
@@ -3280,7 +3289,7 @@ float4 main(float4 pos : SV_POSITION) : SV_Target {
 	static void InstallHooks()
 	{
 		const auto mh = MH_Initialize();
-		Log("[BUILD] BudgetThroughScope r230 (aiming-tree) %s %s", __DATE__, __TIME__);
+		Log("[BUILD] BudgetThroughScope r231 (userpick-uncull) %s %s", __DATE__, __TIME__);
 		Log("[INIT] MH_Initialize = %d", (int)mh);
 		CreateDirectoryW(L"E:\\Custom Fallout4\\shots", nullptr);
 
