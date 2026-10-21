@@ -44,6 +44,7 @@ namespace RC
 	char  g_scopeProfileName[32] = "unknown";
 	bool  g_showScopeReticle = false;
 	bool  g_scopeValid = false;
+	float g_siblingHideDelay = 0.0f;   // r235: 毫秒，0 = 立即（默认保持现行为）
 	int   g_crossTarget = 0;
 	float g_crossOffX = 0.0f;
 	float g_crossOffY = 0.0f;
@@ -205,6 +206,11 @@ namespace RC
 						? "strict ON : skip only the identified lens depth"
 						: "strict OFF: skip ALL target-count depth passes (loose)");
 					ImGui::Spacing();
+					ImGui::Separator();
+					ImGui::Text("ADS transition");
+					ImGui::SliderFloat("sibling hide delay (ms)", &g_siblingHideDelay, 0.0f, 800.0f, "%.0f");
+					ImGui::TextDisabled("0 = hide instantly (may flash on ADS entry)");
+					ImGui::TextDisabled("300-500 = wait for the model to settle first");
 					ImGui::TextDisabled("identity is scoped per scope profile:");
 					ImGui::TextDisabled("switching scopes resets it automatically");
 					ImGui::EndTabItem();
