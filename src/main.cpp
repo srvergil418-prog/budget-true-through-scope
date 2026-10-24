@@ -1349,6 +1349,43 @@ float4 main(float4 pos : SV_POSITION) : SV_Target {
 
 		// ======================= r169: mask 模式 =======================
 		// 保留原始材质绘制，再追加一次 B 组绘制写进 R8 mask
+		// r247 (GPT): 入口逐项诊断 —— 明确记录每一项条件，不再靠"没有 MASKW"反推。
+		if (g_maskEnabled && g_ads.load() && s_scopeProfile.targetIndexCount > 0) {
+			static int s_checkLog = 0;
+			if (s_checkLog < 25) {
+				++s_checkLog;
+				const bool cCount = (a_count == s_scopeProfile.targetIndexCount);
+				const bool cStart = (a_start == 0);
+				const bool cRes = (s_maskRTV != nullptr) && (s_psMask != nullptr);
+				Log("[MASK-CHECK] profile=%s target=%u | drawCount=%u start=%u base=%d | rtv=%d ps=%d | %s%s%s",
+					s_scopeProfile.name, s_scopeProfile.targetIndexCount,
+					a_count, a_start, (int)a_base,
+					s_maskRTV ? 1 : 0, s_psMask ? 1 : 0,
+					cCount ? "" : "REJECT_COUNT ",
+					cStart ? "" : "REJECT_START ",
+					cRes ? "" : "REJECT_RES");
+			}
+			// r247 (GPT): 邻近 count 诊断（280~296），40 条上限，只读。
+			if (a_count >= 280 && a_count <= 296 && a_count != s_scopeProfile.targetIndexCount) {
+				static int s_nearLog = 0;
+				if (s_nearLog < 40) {
+					++s_nearLog;
+					ID3D11Buffer* vbN = nullptr;
+					UINT stN = 0, ofN = 0;
+					a_ctx->IAGetVertexBuffers(0, 1, &vbN, &stN, &ofN);
+					ID3D11Buffer* ibN = nullptr;
+					DXGI_FORMAT fmtN = DXGI_FORMAT_UNKNOWN;
+					UINT ifoN = 0;
+					a_ctx->IAGetIndexBuffer(&ibN, &fmtN, &ifoN);
+					Log("[NEAR-288] count=%u start=%u base=%d stride=%u voff=%u | ibFmt=%d ioff=%u | target=%u",
+						a_count, a_start, (int)a_base, stN, ofN, (int)fmtN, ifoN,
+						s_scopeProfile.targetIndexCount);
+					if (vbN) vbN->Release();
+					if (ibN) ibN->Release();
+				}
+			}
+		}
+
 		if (g_maskEnabled && g_ads.load() && s_scopeProfile.targetIndexCount > 0
 			&& a_count == s_scopeProfile.targetIndexCount && a_start == 0 && s_maskRTV && s_psMask) {
 			// r222: 目标几何会在多个 pass 里被绘制（主颜色 + 阴影）。
@@ -3618,7 +3655,7 @@ float4 main(float4 pos : SV_POSITION) : SV_Target {
 	static void InstallHooks()
 	{
 		const auto mh = MH_Initialize();
-		Log("[BUILD] BudgetThroughScope r246 (source-root-resolve) %s %s", __DATE__, __TIME__);
+		Log("[BUILD] BudgetThroughScope r247 (mask-check) %s %s", __DATE__, __TIME__);
 		Log("[INIT] MH_Initialize = %d", (int)mh);
 		CreateDirectoryW(L"E:\\Custom Fallout4\\shots", nullptr);
 
