@@ -2857,11 +2857,29 @@ float4 main(float4 pos : SV_POSITION) : SV_Target {
 						if (auto* saB = FindNode(a_pc, "ScopeAiming")) beforeSA = saB->GetAppCulled() ? 1 : 0;
 
 						SetCullRecorded(target, false);
+						// r243: 目标在 ScopeAiming 里时不要再 uncull 祖先。
+						// 实测（r242 重测）：把目标换成 ScopeAiming 的 HuntingScopeGlass:1 后，
+						// count=288 的 draw 正常出现并写进 mask —— 它在 ADS 时本来可见，
+						// 不需要（也不应该）强行打开 ScopeNormal，那正是闪现的来源。
+						const bool targetUnderAiming = [&]() {
+							if (auto* sa = FindNode(a_pc, "ScopeAiming")) {
+								return FindShapeLike(sa, target->name.c_str()) == target;
+							}
+							return false;
+						}();
 						auto* p = target->parent;
 						int guard = 0;
-						while (p && guard++ < 10 && !g_disableAncestorUncull) {
+						while (p && guard++ < 10 && !g_disableAncestorUncull && !targetUnderAiming) {
 							SetCullRecorded(p, false);
 							p = p->parent;
+						}
+						if (targetUnderAiming) {
+							static int s_aimingLog = 0;
+							if (s_aimingLog < 6) {
+								++s_aimingLog;
+								Log("[CULL] target %s is under ScopeAiming -> skip ancestor uncull (no override of STS)",
+									target->name.c_str());
+							}
 						}
 						{
 							const int afterTarget = target->GetAppCulled() ? 1 : 0;
@@ -3504,7 +3522,7 @@ float4 main(float4 pos : SV_POSITION) : SV_Target {
 	static void InstallHooks()
 	{
 		const auto mh = MH_Initialize();
-		Log("[BUILD] BudgetThroughScope r242 (override-log) %s %s", __DATE__, __TIME__);
+		Log("[BUILD] BudgetThroughScope r243 (aiming-decouple) %s %s", __DATE__, __TIME__);
 		Log("[INIT] MH_Initialize = %d", (int)mh);
 		CreateDirectoryW(L"E:\\Custom Fallout4\\shots", nullptr);
 
