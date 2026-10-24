@@ -2929,17 +2929,18 @@ float4 main(float4 pos : SV_POSITION) : SV_Target {
 								}
 							}
 						};
-						// r234: 只处理目标所在的子树，另一个子树完全不碰。
-						// ScopeAiming 装的是 STS 开镜时要显示的内容（HuntingScopeGlass / ScopeFade /
-						// StrikeEagle_Aim / ScopeInside_Lo ...），cull 它会把整个瞄准画面干掉。
+						// r244: 只有目标在 ScopeNormal 时才 hideSiblings。
+						// ScopeAiming 装的是 STS 开镜画面的全部内容（ScopeFade / Reticle / Dot /
+						// atacr18_sts 瞄准本体 / ATACRScopeInside 镜内画面）——cull 它会让
+						// 整个镜子连带准星一起消失，只剩一块圆形玻璃（用户实测反馈）。
 						RE::NiAVObject* targetRoot = nullptr;
 						if (auto* sn = FindNode(a_pc, "ScopeNormal")) {
 							if (FindShapeLike(sn, target->name.c_str()) == target) targetRoot = sn;
 						}
 						if (!targetRoot) {
-							if (auto* sa = FindNode(a_pc, "ScopeAiming")) {
-								if (FindShapeLike(sa, target->name.c_str()) == target) targetRoot = sa;
-							}
+							// 目标在 ScopeAiming 等别处：不做兄弟 cull，让 STS 的 ADS 画面保持完整
+							Log("[CULL] target %s not under ScopeNormal -> skip sibling hide (keep STS aiming view)",
+								target->name.c_str());
 						}
 						// r235: 延迟隐藏兄弟几何 —— 按下右键瞬间就 cull 会让瞄具在模型还没拉近时
 						// 就闪现成最终状态（用户反馈的过渡观感问题）。
@@ -3522,7 +3523,7 @@ float4 main(float4 pos : SV_POSITION) : SV_Target {
 	static void InstallHooks()
 	{
 		const auto mh = MH_Initialize();
-		Log("[BUILD] BudgetThroughScope r243 (aiming-decouple) %s %s", __DATE__, __TIME__);
+		Log("[BUILD] BudgetThroughScope r244 (keep-aiming-view) %s %s", __DATE__, __TIME__);
 		Log("[INIT] MH_Initialize = %d", (int)mh);
 		CreateDirectoryW(L"E:\\Custom Fallout4\\shots", nullptr);
 
