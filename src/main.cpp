@@ -2815,6 +2815,36 @@ float4 main(float4 pos : SV_POSITION) : SV_Target {
 						}
 					}
 					if (target) {
+						// r245 (GPT): 结构化对象身份诊断 —— 只读，不改行为。
+						// 目的：确认全局 FindNode 返回的 target 到底挂在哪个子树下。
+						{
+							static int s_idLog = 0;
+							if (s_idLog < 8) {
+								++s_idLog;
+								auto* saP = FindNode(a_pc, "ScopeAiming");
+								auto* snP2 = FindNode(a_pc, "ScopeNormal");
+								auto isUnder = [](RE::NiAVObject* o, RE::NiAVObject* root) -> int {
+									if (!o || !root) return -1;
+									auto* q = o;
+									int g2 = 0;
+									while (q && g2++ < 16) {
+										if (q == root) return 1;
+										q = q->parent;
+									}
+									return 0;
+								};
+								const char* p0 = (target->parent) ? target->parent->name.c_str() : "(null)";
+								const char* p1 = (target->parent && target->parent->parent) ? target->parent->parent->name.c_str() : "(null)";
+								const char* p2 = (target->parent && target->parent->parent && target->parent->parent->parent)
+									? target->parent->parent->parent->name.c_str() : "(null)";
+								Log("[ADAPTER-TARGET] picked='%s' resolved='%s'",
+									s_userPickedName, target->name.c_str());
+								Log("[ADAPTER-TARGET]   ptr=%p A_ptr=%p N_ptr=%p | underAiming=%d underNormal=%d",
+									(void*)target, (void*)saP, (void*)snP2,
+									isUnder(target, saP), isUnder(target, snP2));
+								Log("[ADAPTER-TARGET]   parent0=%s parent1=%s parent2=%s", p0, p1, p2);
+							}
+						}
 						// r232 (GPT 步骤 1): 记录目标完整父链 + 每级 cull 状态，不改行为。
 						// 目的：确认 ScopeNormal/ScopeAiming 是否是安全边界、镜筒支架挂在哪。
 						{
@@ -3523,7 +3553,7 @@ float4 main(float4 pos : SV_POSITION) : SV_Target {
 	static void InstallHooks()
 	{
 		const auto mh = MH_Initialize();
-		Log("[BUILD] BudgetThroughScope r244 (keep-aiming-view) %s %s", __DATE__, __TIME__);
+		Log("[BUILD] BudgetThroughScope r245 (target-id-log) %s %s", __DATE__, __TIME__);
 		Log("[INIT] MH_Initialize = %d", (int)mh);
 		CreateDirectoryW(L"E:\\Custom Fallout4\\shots", nullptr);
 
