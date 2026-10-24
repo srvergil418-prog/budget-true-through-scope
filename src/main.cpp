@@ -422,6 +422,7 @@ namespace RC
 	static bool       s_shapeListDirty = true;   // ADS 进入时置 true，重新扫描
 	static int        s_userPickedShape = -1;    // 用户点选的索引（仅 GUI 显示用，不稳定）
 	static char       s_userPickedName[64] = {}; // r241: 真正保存的是 shape 名字（索引每次重扫会变）
+	static char       s_userPickedSource = 0;    // r246: 'A'=ScopeAiming / 'N'=ScopeNormal（解析目标时限定子树）
 
 	static ID3D11Texture2D* s_maskTex = nullptr;
 	static ID3D11Texture2D* s_maskStaging = nullptr;   // r172: 读回用
@@ -2539,6 +2540,55 @@ float4 main(float4 pos : SV_POSITION) : SV_Target {
 		}
 	}
 
+	// r246 (GPT): 子树内「完整名称相等」查找（不是子串匹配）
+	static RE::NiAVObject* FindShapeExactIn(RE::NiAVObject* a_root, const char* a_name)
+	{
+		if (!a_root || !a_name || !a_name[0]) return nullptr;
+		std::vector<RE::NiAVObject*> stack{ a_root };
+		int guard = 0;
+		while (!stack.empty() && guard++ < 512) {
+			RE::NiAVObject* cur = stack.back();
+			stack.pop_back();
+			if (!cur) continue;
+			if (cur->IsTriShape()) {
+				if (strcmp(cur->name.c_str(), a_name) == 0) return cur;
+				continue;
+			}
+			if (auto* n = cur->IsNode()) {
+				for (auto& ch : n->children) if (ch) stack.push_back(ch.get());
+			}
+		}
+		return nullptr;
+	}
+
+	static bool IsUnderNode(RE::NiAVObject* a_obj, RE::NiAVObject* a_root)
+	{
+		if (!a_obj || !a_root) return false;
+		RE::NiAVObject* p = a_obj;
+		int g = 0;
+		while (p && g++ < 16) {
+			if (p == a_root) return true;
+			p = p->parent;
+		}
+		return false;
+	}
+
+	// r246: 解析用户选择的目标 —— 来源根 + 完整名字 + 父链验证。
+	// a_status: 0=未选择, 1=成功, -1=找不到根, -2=子树内没有该名字, -3=父链验证失败
+	static RE::NiAVObject* ResolveUserPick(RE::PlayerCharacter* a_pc, int& a_status)
+	{
+		a_status = 0;
+		if (s_userPickedName[0] == 0) return nullptr;
+		const char* rootName = (s_userPickedSource == 'A') ? "ScopeAiming" : "ScopeNormal";
+		RE::NiAVObject* root = FindNode(a_pc, rootName);
+		if (!root) { a_status = -1; return nullptr; }
+		RE::NiAVObject* found = FindShapeExactIn(root, s_userPickedName);
+		if (!found) { a_status = -2; return nullptr; }
+		if (!IsUnderNode(found, root)) { a_status = -3; return nullptr; }
+		a_status = 1;
+		return found;
+	}
+
 	// r229: 应用用户选中的 shape 作为临时 profile
 	// r241: 同时保存名字 —— 索引每次 ADS 重扫都会变（实测选完再开镜，[0] 从
 	// HuntingScopeGlass:1 变成了 StrikeEagle_Lo，mask 就画到主体上去了）。
@@ -2547,12 +2597,14 @@ float4 main(float4 pos : SV_POSITION) : SV_Target {
 		if (a_index < 0) {
 			s_userPickedShape = -1;
 			s_userPickedName[0] = 0;
+			s_userPickedSource = 0;
 			Log("[ADAPTER] user pick cleared");
 			return true;
 		}
 		if (a_index >= s_shapeCount) return false;
 		s_userPickedShape = a_index;
 		strncpy_s(s_userPickedName, sizeof(s_userPickedName), s_shapeList[a_index].name, _TRUNCATE);
+		s_userPickedSource = s_shapeList[a_index].source;
 		const ShapeEntry& e = s_shapeList[a_index];
 		s_scopeProfile = ScopeProfile{};
 		s_scopeProfile.name = "UserPick";
@@ -2799,11 +2851,24 @@ float4 main(float4 pos : SV_POSITION) : SV_Target {
 					// K98k = "Lense"，ATACR = "rear_glass"，VortexSE = "StrikeEagleLens"。
 					// 用户选中的 shape 优先（适配器 Phase 1）——直接用它的节点名精确查找。
 					RE::NiAVObject* target = nullptr;
-					if (s_userPickedShape >= 0 && s_userPickedShape < s_shapeCount) {
-						target = FindNode(a_pc, s_shapeList[s_userPickedShape].name);
+					if (s_userPickedName[0] != 0) {
+						// r246 (GPT): 不再用全局 FindNode 静默兜底 —— 按来源根 + 完整名字精确解析
+						int st = 0;
+						target = ResolveUserPick(a_pc, st);
 						if (!target) {
-							Log("[CULL] user-picked shape '%s' not found in scene tree",
-								s_shapeList[s_userPickedShape].name);
+							static int s_resFailLog = 0;
+							if (s_resFailLog < 6) {
+								++s_resFailLog;
+								Log("[ADAPTER-TARGET] resolve FAILED status=%d picked='%s' source=%c",
+									st, s_userPickedName, s_userPickedSource ? s_userPickedSource : '?');
+							}
+						} else {
+							static int s_resOkLog = 0;
+							if (s_resOkLog < 6) {
+								++s_resOkLog;
+								Log("[ADAPTER-TARGET] resolved OK picked='%s' source=%c ptr=%p",
+									s_userPickedName, s_userPickedSource, (void*)target);
+							}
 						}
 					} else if (auto* snP = FindNode(a_pc, "ScopeNormal")) {
 						if (strcmp(s_scopeProfile.name, "ATACR") == 0) {
@@ -3553,7 +3618,7 @@ float4 main(float4 pos : SV_POSITION) : SV_Target {
 	static void InstallHooks()
 	{
 		const auto mh = MH_Initialize();
-		Log("[BUILD] BudgetThroughScope r245 (target-id-log) %s %s", __DATE__, __TIME__);
+		Log("[BUILD] BudgetThroughScope r246 (source-root-resolve) %s %s", __DATE__, __TIME__);
 		Log("[INIT] MH_Initialize = %d", (int)mh);
 		CreateDirectoryW(L"E:\\Custom Fallout4\\shots", nullptr);
 
