@@ -2849,28 +2849,34 @@ float4 main(float4 pos : SV_POSITION) : SV_Target {
 							}
 						}
 
+						// r242 (GPT 实验 A/C): 记录「我们改之前」的值 —— 必须能和 STS 的写入区分开。
+						// 如果 ScopeNormal 被 STS 设为 1（隐藏）而日志显示 1 -> 0，就是我们覆盖了它。
+						const int beforeTarget = target->GetAppCulled() ? 1 : 0;
+						int beforeSN = -1, beforeSA = -1;
+						if (auto* snB = FindNode(a_pc, "ScopeNormal")) beforeSN = snB->GetAppCulled() ? 1 : 0;
+						if (auto* saB = FindNode(a_pc, "ScopeAiming")) beforeSA = saB->GetAppCulled() ? 1 : 0;
+
 						SetCullRecorded(target, false);
-						// r237 (GPT): 检查目标祖先是否被游戏隐藏 —— 如果是，说明这个 shape
-						// 在稳定 ADS 时本来就不可见，我们是在强行打开它（会带出整棵子树）。
-						// 只诊断，不改变现有行为（K98k/ATACR 依赖当前的 uncull）。
-						{
-							auto* q = target->parent;
-							int d = 0;
-							while (q && d < 12) {
-								if (q->GetAppCulled()) {
-									Log("[TARGET-WARN] %s: ancestor[%d] '%s' is CULLED -> this shape is hidden in stable ADS",
-										target->name.c_str(), d, q->name.c_str());
-									break;
-								}
-								q = q->parent;
-								++d;
-							}
-						}
 						auto* p = target->parent;
 						int guard = 0;
-						while (p && guard++ < 10) {
+						while (p && guard++ < 10 && !g_disableAncestorUncull) {
 							SetCullRecorded(p, false);
 							p = p->parent;
+						}
+						{
+							const int afterTarget = target->GetAppCulled() ? 1 : 0;
+							int afterSN = -1;
+							if (auto* snA = FindNode(a_pc, "ScopeNormal")) afterSN = snA->GetAppCulled() ? 1 : 0;
+							// 只在「确实覆盖了 STS 的状态」时才打印（STS 隐藏、我们压回可见）
+							if (beforeSN == 1 && afterSN == 0) {
+								static int s_overrideLog = 0;
+								if (s_overrideLog < 20) {
+									++s_overrideLog;
+									Log("[OVERRIDE] we un-culled ScopeNormal that STS had hidden (SN %d->%d, target %d->%d, SA=%d, ancestorUncull=%d)",
+										beforeSN, afterSN, beforeTarget, afterTarget, beforeSA,
+										g_disableAncestorUncull ? 0 : 1);
+								}
+							}
 						}
 					} else {
 						Log("[CULL] forceLense: target NOT found (profile=%s)", s_scopeProfile.name);
@@ -3498,7 +3504,7 @@ float4 main(float4 pos : SV_POSITION) : SV_Target {
 	static void InstallHooks()
 	{
 		const auto mh = MH_Initialize();
-		Log("[BUILD] BudgetThroughScope r241 (by-name-apply) %s %s", __DATE__, __TIME__);
+		Log("[BUILD] BudgetThroughScope r242 (override-log) %s %s", __DATE__, __TIME__);
 		Log("[INIT] MH_Initialize = %d", (int)mh);
 		CreateDirectoryW(L"E:\\Custom Fallout4\\shots", nullptr);
 
