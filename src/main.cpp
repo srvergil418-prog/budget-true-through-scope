@@ -420,7 +420,8 @@ namespace RC
 	static ShapeEntry s_shapeList[kMaxShapeEntries];
 	static int        s_shapeCount = 0;
 	static bool       s_shapeListDirty = true;   // ADS 进入时置 true，重新扫描
-	static int        s_userPickedShape = -1;    // 用户点选的索引（-1 = 用内置 profile）
+	static int        s_userPickedShape = -1;    // 用户点选的索引（仅 GUI 显示用，不稳定）
+	static char       s_userPickedName[64] = {}; // r241: 真正保存的是 shape 名字（索引每次重扫会变）
 
 	static ID3D11Texture2D* s_maskTex = nullptr;
 	static ID3D11Texture2D* s_maskStaging = nullptr;   // r172: 读回用
@@ -440,6 +441,7 @@ namespace RC
 	// r239: 主颜色 pass 的 RTV —— 每次 ADS 进入时重新学习。
 	// 原来锁在函数内 static 里永不重置；换瞄具后 RTV 变了会被 r225 的判据全部拒绝。
 	static ID3D11RenderTargetView* s_learnedMainRTV = nullptr;
+	static ID3D11RenderTargetView* s_learnedMainRTV2 = nullptr;   // r241: 主 pass 有 A/B 双缓冲
 
 	// r181: 严格 Lense 识别 —— 用索引缓冲区内容判定（读一次，缓存结果）
 	// 依据（S 级，来自 NIF 字节级比对）：Lense:0 的 384 个索引只引用 0..81 顶点；
@@ -1375,14 +1377,23 @@ float4 main(float4 pos : SV_POSITION) : SV_Target {
 						s_mainRTV->AddRef();
 						Log("[MASK] learned main RTV = %p (vp=%.0fx%.0f), will only accept this one",
 							(void*)s_mainRTV, vp2.Width, vp2.Height);
+					} else if (s_learnedMainRTV2 && curRTV[0] == s_learnedMainRTV2) {
+						// r241: 主 pass 的 A/B 双缓冲，第二个也接受
 					} else if (curRTV[0] != s_mainRTV) {
-						static int s_rtvMismatchLog = 0;
-						if (s_rtvMismatchLog < 10) {
-							++s_rtvMismatchLog;
-							Log("[MASK-SKIP] rtv mismatch: got %p want %p (vp=%.0fx%.0f)",
-								(void*)curRTV[0], (void*)s_mainRTV, vp2.Width, vp2.Height);
+						// r241: 首次遇到另一张时登记为次 RTV（双缓冲）；再遇到第三张才拒绝
+						if (!s_learnedMainRTV2) {
+							s_learnedMainRTV2 = curRTV[0];
+							s_learnedMainRTV2->AddRef();
+							Log("[MASK] learned secondary RTV = %p (double buffering)", (void*)s_learnedMainRTV2);
+						} else {
+							static int s_rtvMismatchLog = 0;
+							if (s_rtvMismatchLog < 10) {
+								++s_rtvMismatchLog;
+								Log("[MASK-SKIP] rtv mismatch: got %p want %p (vp=%.0fx%.0f)",
+									(void*)curRTV[0], (void*)s_mainRTV, vp2.Width, vp2.Height);
+							}
+							isMainColorPass = false;
 						}
-						isMainColorPass = false;
 					}
 				}
 
@@ -2529,11 +2540,19 @@ float4 main(float4 pos : SV_POSITION) : SV_Target {
 	}
 
 	// r229: 应用用户选中的 shape 作为临时 profile
+	// r241: 同时保存名字 —— 索引每次 ADS 重扫都会变（实测选完再开镜，[0] 从
+	// HuntingScopeGlass:1 变成了 StrikeEagle_Lo，mask 就画到主体上去了）。
 	static bool ApplyUserPickedShape(int a_index)
 	{
-		if (a_index < 0) { s_userPickedShape = -1; Log("[ADAPTER] user pick cleared"); return true; }
+		if (a_index < 0) {
+			s_userPickedShape = -1;
+			s_userPickedName[0] = 0;
+			Log("[ADAPTER] user pick cleared");
+			return true;
+		}
 		if (a_index >= s_shapeCount) return false;
 		s_userPickedShape = a_index;
+		strncpy_s(s_userPickedName, sizeof(s_userPickedName), s_shapeList[a_index].name, _TRUNCATE);
 		const ShapeEntry& e = s_shapeList[a_index];
 		s_scopeProfile = ScopeProfile{};
 		s_scopeProfile.name = "UserPick";
@@ -2547,6 +2566,21 @@ float4 main(float4 pos : SV_POSITION) : SV_Target {
 		Log("[ADAPTER] applied user pick [%d] %s -> count=%u maxIdx<=%u",
 			a_index, e.name, e.count, e.maxIdx);
 		return true;
+	}
+
+	// r241: 按名字重新应用用户选择 —— 重扫后索引不可靠，用名字查当前列表。
+	static bool ReapplyUserPickByName()
+	{
+		if (s_userPickedName[0] == 0) return false;
+		for (int i = 0; i < s_shapeCount; ++i) {
+			if (strcmp(s_shapeList[i].name, s_userPickedName) == 0) {
+				s_userPickedShape = i;   // 同步索引，供 GUI 高亮
+				return ApplyUserPickedShape(i);
+			}
+		}
+		Log("[ADAPTER] user pick '%s' not found in current scan (%d shapes) - ignored",
+			s_userPickedName, s_shapeCount);
+		return false;
 	}
 
 	// r229: 给 GUI 的导出接口（同 namespace 内，非 static）
@@ -3464,7 +3498,7 @@ float4 main(float4 pos : SV_POSITION) : SV_Target {
 	static void InstallHooks()
 	{
 		const auto mh = MH_Initialize();
-		Log("[BUILD] BudgetThroughScope r240 (apply-check) %s %s", __DATE__, __TIME__);
+		Log("[BUILD] BudgetThroughScope r241 (by-name-apply) %s %s", __DATE__, __TIME__);
 		Log("[INIT] MH_Initialize = %d", (int)mh);
 		CreateDirectoryW(L"E:\\Custom Fallout4\\shots", nullptr);
 
