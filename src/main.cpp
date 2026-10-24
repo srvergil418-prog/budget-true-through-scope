@@ -437,6 +437,9 @@ namespace RC
 	static int s_cStatStartNZ = 0;
 	static int s_cStatDetail = 0;
 	static int s_cStatFrames = 0;
+	// r239: 主颜色 pass 的 RTV —— 每次 ADS 进入时重新学习。
+	// 原来锁在函数内 static 里永不重置；换瞄具后 RTV 变了会被 r225 的判据全部拒绝。
+	static ID3D11RenderTargetView* s_learnedMainRTV = nullptr;
 
 	// r181: 严格 Lense 识别 —— 用索引缓冲区内容判定（读一次，缓存结果）
 	// 依据（S 级，来自 NIF 字节级比对）：Lense:0 的 384 个索引只引用 0..81 顶点；
@@ -1365,7 +1368,7 @@ float4 main(float4 pos : SV_POSITION) : SV_Target {
 				// r225: RTV 身份锁定 —— 同一个几何还有别的带 RTV 的 pass（不只是阴影）。
 				// 第一次见到"看起来像主 pass"的 RTV 就记住它，之后只认这一个。
 				// 这样即使有第二个带 RTV 的 pass，也不会再往 mask 里画第二份。
-				static ID3D11RenderTargetView* s_mainRTV = nullptr;
+				ID3D11RenderTargetView*& s_mainRTV = s_learnedMainRTV;
 				if (isMainColorPass) {
 					if (!s_mainRTV) {
 						s_mainRTV = curRTV[0];
@@ -2714,7 +2717,16 @@ float4 main(float4 pos : SV_POSITION) : SV_Target {
 				// r179: 只在「刚进入 ADS」时建立一次原始状态快照。
 				// 关键修复：原来 s_cullRec.clear() 写在每帧路径里，
 				// 导致 orig 记录到的是我们上一帧改过的值，退出时恢复失真。
-				if (!s_lastADS) s_cullRec.clear();
+				if (!s_lastADS) {
+					s_cullRec.clear();
+					// r239: 每次 ADS 重新学习主颜色 RTV。
+					// 换瞄具后 G-Buffer 的 RTV 会变，旧锁定会把新的全部拒绝（日志里的 rtv mismatch）。
+					if (s_learnedMainRTV) {
+						s_learnedMainRTV->Release();
+						s_learnedMainRTV = nullptr;
+						Log("[MASK] released learned RTV, will re-learn this ADS session");
+					}
+				}
 
 				// 每帧算镜片投影（诊断用）
 				UpdateMask(a_pc);
@@ -3450,7 +3462,7 @@ float4 main(float4 pos : SV_POSITION) : SV_Target {
 	static void InstallHooks()
 	{
 		const auto mh = MH_Initialize();
-		Log("[BUILD] BudgetThroughScope r238 (vis-per-ads) %s %s", __DATE__, __TIME__);
+		Log("[BUILD] BudgetThroughScope r239 (rtv-relearn) %s %s", __DATE__, __TIME__);
 		Log("[INIT] MH_Initialize = %d", (int)mh);
 		CreateDirectoryW(L"E:\\Custom Fallout4\\shots", nullptr);
 
