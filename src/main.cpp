@@ -3005,8 +3005,10 @@ float4 main(float4 pos : SV_POSITION) : SV_Target {
 						// r191: 判定当前瞄具属于哪个已验证家族（白名单）
 						IdentifyScopeProfile(sn2);
 						// r229: 用户点选的 shape 优先于内置识别（临时 profile，不写盘）
+						Log("[ADAPTER] ADS-apply check: picked=%d shapeCount=%d", s_userPickedShape, s_shapeCount);
 						if (s_userPickedShape >= 0 && s_userPickedShape < s_shapeCount) {
-							ApplyUserPickedShape(s_userPickedShape);
+							const bool ok = ApplyUserPickedShape(s_userPickedShape);
+							Log("[ADAPTER] ADS-apply -> %s, profile now=%s", ok ? "OK" : "FAILED", s_scopeProfile.name);
 						}
 					SyncProfileName();
 						// r200: profile 真正变化时重置旧身份（A+B 方案的 B）
@@ -3462,7 +3464,7 @@ float4 main(float4 pos : SV_POSITION) : SV_Target {
 	static void InstallHooks()
 	{
 		const auto mh = MH_Initialize();
-		Log("[BUILD] BudgetThroughScope r239 (rtv-relearn) %s %s", __DATE__, __TIME__);
+		Log("[BUILD] BudgetThroughScope r240 (apply-check) %s %s", __DATE__, __TIME__);
 		Log("[INIT] MH_Initialize = %d", (int)mh);
 		CreateDirectoryW(L"E:\\Custom Fallout4\\shots", nullptr);
 
